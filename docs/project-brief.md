@@ -13,14 +13,22 @@ Goal: Track Illinois Lottery instant ticket prize availability over time.
 
 ## Initial priorities
 
-1. Database schema
-2. Raw snapshot collection
-3. Parser
-4. Import pipeline
-5. Math/metrics
-6. Nightly scheduler
-7. Minimal admin/status views
-8. Public UI later
+1. Database schema ✅
+2. Raw snapshot collection ✅
+3. Source discovery ✅
+4. Parser ✅
+5. Import pipeline ✅
+6. Data quality / reconciliation ✅
+7. Math/metrics (next)
+8. Nightly scheduler
+9. Minimal admin/status views
+10. Public UI later
+
+Two import workflows are complete:
+- Unpaid-prizes snapshot import (games, game_snapshots, prize_tier_snapshots)
+- Instant-ticket hub discovery and detail metadata import (games only)
+
+Reconciliation compares coverage between the two sources by game_number and is read-only.
 
 ## Important principles
 

@@ -95,8 +95,12 @@ class Game(Base):
     source_url: Mapped[str | None] = mapped_column(Text)
     ticket_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     launch_date: Mapped[date | None] = mapped_column(Date)
-    overall_odds: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    end_date: Mapped[date | None] = mapped_column(Date)
+    overall_odds_one_in: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    est_total_tickets: Mapped[int | None] = mapped_column(BigInteger)
     top_prize_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    category: Mapped[str | None] = mapped_column(String(128))
+    play_style: Mapped[str | None] = mapped_column(String(128))
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -137,9 +141,27 @@ class GameSnapshot(Base):
     total_remaining_winning_tickets: Mapped[int | None] = mapped_column(BigInteger)
     top_prizes_original: Mapped[int | None] = mapped_column(Integer)
     top_prizes_remaining: Mapped[int | None] = mapped_column(Integer)
+    weeks_in_market: Mapped[int | None] = mapped_column(Integer)
     estimated_tickets_remaining: Mapped[int | None] = mapped_column(BigInteger)
     estimated_ev: Mapped[Decimal | None] = mapped_column(Numeric(14, 6))
     estimated_ev_excluding_top_prize: Mapped[Decimal | None] = mapped_column(Numeric(14, 6))
+
+    # Phase 1 normalized metrics — odds-dependent
+    estimated_payout_ratio: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    estimated_house_edge: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    estimated_payout_ratio_excluding_top_prize: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 6)
+    )
+    launch_ev: Mapped[Decimal | None] = mapped_column(Numeric(14, 6))
+    launch_payout_ratio: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    ev_vs_launch_ratio: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+
+    # Phase 1 normalized metrics — always computed from raw totals (no odds needed).
+    # *_pct fields are stored as decimal fractions: 0.749 means 74.9 %.
+    remaining_prize_value_pct: Mapped[Decimal | None] = mapped_column(Numeric(8, 6))
+    remaining_winning_tickets_pct: Mapped[Decimal | None] = mapped_column(Numeric(8, 6))
+    top_prize_remaining_pct: Mapped[Decimal | None] = mapped_column(Numeric(8, 6))
+    top_prize_depleted: Mapped[bool | None] = mapped_column(Boolean)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

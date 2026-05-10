@@ -1,0 +1,14 @@
+[Unit]
+Description=Illinois Lottery Tracker — nightly unpaid-prizes pipeline
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/stosh99/projects/IllinoisLotteryTracker
+EnvironmentFile=/home/stosh99/projects/IllinoisLotteryTracker/.env
+ExecStart=/home/stosh99/projects/IllinoisLotteryTracker/.venv/bin/python \
+    /home/stosh99/projects/IllinoisLotteryTracker/scripts/run_nightly_unpaid_prizes_pipeline.py
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=illinois-lottery-nightly

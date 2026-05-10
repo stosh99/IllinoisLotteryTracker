@@ -7,6 +7,8 @@ monkeypatched so no browser is launched.
 
 from __future__ import annotations
 
+import hashlib
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,10 +17,14 @@ import requests
 
 from illinois_lottery_tracker import raw_collector
 from illinois_lottery_tracker.config import Settings
+from illinois_lottery_tracker.paths import dated_raw_dir
 from illinois_lottery_tracker.raw_collector import (
+    BatchPageResult,
     _browser_headers,
     _FetchOutcome,
+    _filename,
     _is_forbidden,
+    collect_pages_batch,
     collect_raw_snapshot,
 )
 
@@ -117,7 +123,7 @@ def test_collect_falls_back_to_playwright_on_403(tmp_path, monkeypatch):
     playwright_body = b"<html>from-playwright</html>"
     calls: dict[str, Any] = {"count": 0, "kwargs": None}
 
-    def fake_playwright(url, *, user_agent, timeout_ms):
+    def fake_playwright(url, *, user_agent, timeout_ms, wait_selector=None):
         calls["count"] += 1
         calls["kwargs"] = {
             "url": url,
@@ -182,3 +188,118 @@ def test_collect_filename_is_dated_and_unique(tmp_path, monkeypatch):
     assert file_path.parent.name == result.captured_at.strftime("%Y-%m-%d")
     assert file_path.name.startswith("unpaid-instant-games-prizes-")
     assert file_path.name.endswith(".html")
+
+
+# ---------------------------------------------------------------------------
+# collect_pages_batch
+# ---------------------------------------------------------------------------
+
+def _fake_batch_playwright(body: bytes):
+    """Return a fake _fetch_pages_batch_with_playwright that writes ``body`` for each URL."""
+    def _fake(url_prefix_pairs, *, user_agent, timeout_ms, wait_selector, settings, on_progress):
+        results = []
+        for url, prefix in url_prefix_pairs:
+            if on_progress:
+                on_progress(len(results) + 1, len(url_prefix_pairs), url)
+            captured_at = datetime.now(UTC)
+            target_dir = dated_raw_dir(captured_at, settings=settings, create=True)
+            target_path = target_dir / _filename(captured_at, prefix)
+            target_path.write_bytes(body)
+            results.append(BatchPageResult(
+                url=url,
+                file_path=str(target_path),
+                sha256=hashlib.sha256(body).hexdigest(),
+                captured_at=captured_at,
+                content_type="text/html; charset=utf-8",
+                bytes_written=len(body),
+                fetch_method="playwright",
+                error=None,
+            ))
+        return results
+    return _fake
+
+
+def test_collect_pages_batch_returns_one_result_per_url(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        raw_collector, "_fetch_pages_batch_with_playwright",
+        _fake_batch_playwright(b"<html>ok</html>"),
+    )
+    pairs = [
+        ("https://example.test/a", "prefix-a"),
+        ("https://example.test/b", "prefix-b"),
+    ]
+    results = collect_pages_batch(pairs, settings=_settings(tmp_path))
+    assert len(results) == 2
+
+
+def test_collect_pages_batch_success_results_have_files(tmp_path, monkeypatch):
+    body = b"<html>content</html>"
+    monkeypatch.setattr(
+        raw_collector, "_fetch_pages_batch_with_playwright",
+        _fake_batch_playwright(body),
+    )
+    pairs = [("https://example.test/x", "my-prefix")]
+    results = collect_pages_batch(pairs, settings=_settings(tmp_path))
+    assert results[0].success is True
+    assert Path(results[0].file_path).read_bytes() == body
+
+
+def test_collect_pages_batch_failed_page_recorded(tmp_path, monkeypatch):
+    def _fail_first(  # noqa: E501
+        url_prefix_pairs, *, user_agent, timeout_ms, wait_selector, settings, on_progress
+    ):
+        url, _ = url_prefix_pairs[0]
+        return [BatchPageResult(
+            url=url, file_path=None, sha256=None, captured_at=None,
+            content_type=None, bytes_written=0, fetch_method=None,
+            error="timeout",
+        )]
+
+    monkeypatch.setattr(raw_collector, "_fetch_pages_batch_with_playwright", _fail_first)
+    results = collect_pages_batch(
+        [("https://example.test/fail", "p")], settings=_settings(tmp_path)
+    )
+    assert results[0].success is False
+    assert results[0].error == "timeout"
+    assert results[0].file_path is None
+
+
+def test_collect_pages_batch_preserves_order(tmp_path, monkeypatch):
+    urls = [f"https://example.test/{i}" for i in range(5)]
+    monkeypatch.setattr(
+        raw_collector, "_fetch_pages_batch_with_playwright",
+        _fake_batch_playwright(b"x"),
+    )
+    pairs = [(url, f"p{i}") for i, url in enumerate(urls)]
+    results = collect_pages_batch(pairs, settings=_settings(tmp_path))
+    assert [r.url for r in results] == urls
+
+
+def test_collect_pages_batch_calls_progress_callback(tmp_path, monkeypatch):
+    calls: list[tuple[int, int, str]] = []
+    monkeypatch.setattr(
+        raw_collector, "_fetch_pages_batch_with_playwright",
+        _fake_batch_playwright(b"x"),
+    )
+    collect_pages_batch(
+        [("https://example.test/a", "pa"), ("https://example.test/b", "pb")],
+        settings=_settings(tmp_path),
+        on_progress=lambda cur, tot, url: calls.append((cur, tot, url)),
+    )
+    assert calls == [
+        (1, 2, "https://example.test/a"),
+        (2, 2, "https://example.test/b"),
+    ]
+
+
+def test_batch_page_result_success_property():
+    ok = BatchPageResult(
+        url="u", file_path="/f", sha256="x", captured_at=datetime.now(UTC),
+        content_type="text/html", bytes_written=10, fetch_method="playwright", error=None,
+    )
+    fail = BatchPageResult(
+        url="u", file_path=None, sha256=None, captured_at=None,
+        content_type=None, bytes_written=0, fetch_method=None, error="boom",
+    )
+    assert ok.success is True
+    assert fail.success is False

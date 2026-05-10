@@ -1,0 +1,11 @@
+[Unit]
+Description=Illinois Lottery Tracker — nightly unpaid-prizes pipeline timer
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+AccuracySec=1s
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target
