@@ -5,6 +5,7 @@ Does not write to the database. Does not fetch anything from the network.
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -12,15 +13,13 @@ from illinois_lottery_tracker.parser import parse_html
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    if len(args) != 1:
-        print(
-            "Usage: python scripts/parse_saved_html.py <path-to-html>",
-            file=sys.stderr,
-        )
-        return 2
+    parser = argparse.ArgumentParser(
+        description="Parse a saved Illinois Lottery rendered-HTML file."
+    )
+    parser.add_argument("file", help="Path to a saved rendered HTML file.")
+    args = parser.parse_args(argv)
 
-    target = Path(args[0])
+    target = Path(args.file)
     if not target.is_file():
         print(f"ERROR: file not found: {target}", file=sys.stderr)
         return 1

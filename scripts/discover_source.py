@@ -16,6 +16,7 @@ Outputs land under ``data/raw/discovery/`` (git-ignored):
 
 from __future__ import annotations
 
+import argparse
 import dataclasses
 import json
 import re
@@ -400,7 +401,15 @@ def print_report(report: DiscoveryReport) -> None:
     print("=" * 72)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run a one-shot Playwright diagnostic against the Illinois Lottery "
+            "unclaimed-prizes source page."
+        )
+    )
+    parser.parse_args(argv)
+
     try:
         report = run_discovery()
     except Exception as exc:
