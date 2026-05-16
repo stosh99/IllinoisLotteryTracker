@@ -1,32 +1,37 @@
 """Nightly pipeline runner for the unpaid-prizes workflow.
 
 Steps (unless --raw-file is supplied):
-  1. Fetch a fresh unpaid-prizes raw HTML file via collect_raw_snapshot.
-  2. Validate the saved HTML (Cloudflare / wrong-page detection).
-  3. Parse the HTML into structured prize data.
-  4. Import a new game/prize-tier snapshot into the database.
-  5. Compute estimated-ticket and EV metrics for affected snapshots.
-  6. Print a run summary and exit 0 on success, nonzero on any failure.
+  1. Optionally skip when today's successful DB snapshot already exists.
+  2. Fetch a fresh unpaid-prizes raw HTML file via collect_raw_snapshot.
+  3. Validate the saved HTML (Cloudflare / wrong-page detection).
+  4. Parse the HTML into structured prize data.
+  5. Import a new game/prize-tier snapshot into the database.
+  6. Compute estimated-ticket and EV metrics for affected snapshots.
+  7. Print a run summary and exit 0 on success, nonzero on any failure.
 
 To schedule nightly (after validating this runner manually):
   systemd:  ExecStart=/path/to/.venv/bin/python \
-              /path/to/scripts/run_nightly_unpaid_prizes_pipeline.py
-  cron:     0 3 * * * cd /path/to/project && \
-              .venv/bin/python scripts/run_nightly_unpaid_prizes_pipeline.py
+              /path/to/scripts/run_nightly_unpaid_prizes_pipeline.py \
+              --skip-if-today-imported
+  timer:    schedule 03:00, 04:00, 05:00, and 06:00 local time. Later runs
+            exit without fetching once today's successful DB snapshot exists.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 from illinois_lottery_tracker.db import get_engine
 from illinois_lottery_tracker.pipeline import (
+    LOCAL_TIME_ZONE,
     DuplicateImportError,
     ValidationError,
+    find_successful_snapshot_run_for_source_date,
     run_from_file,
 )
 from illinois_lottery_tracker.raw_collector import UNPAID_PRIZES_URL, collect_raw_snapshot
@@ -58,6 +63,14 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Import even if the same file content was already imported.",
     )
+    parser.add_argument(
+        "--skip-if-today-imported",
+        action="store_true",
+        help=(
+            "Before fetching live source data, exit 0 if today's source date "
+            "already has a successful imported snapshot set."
+        ),
+    )
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
 
     fetch_method: str | None = None
@@ -68,6 +81,22 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ERROR: file not found: {raw_path}", file=sys.stderr)
             return 1
     else:
+        if args.skip_if_today_imported:
+            today = datetime.now(LOCAL_TIME_ZONE).date()
+            engine = get_engine()
+            with Session(engine, expire_on_commit=False, future=True) as session:
+                existing_run_id = find_successful_snapshot_run_for_source_date(
+                    session,
+                    source_date=today,
+                    min_games=args.min_games,
+                )
+            if existing_run_id is not None:
+                print(
+                    f"SKIP: successful imported snapshot already exists for "
+                    f"{today.isoformat()} as scrape_run_id={existing_run_id}."
+                )
+                return 0
+
         print(f"Fetching {UNPAID_PRIZES_URL} ...", flush=True)
         try:
             collection = collect_raw_snapshot(url=UNPAID_PRIZES_URL)

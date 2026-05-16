@@ -114,10 +114,12 @@ CLI scripts:
 ### Nightly pipeline runner (`pipeline.py`)
 - `validate_unpaid_prizes_html(content)` — raises `ValidationError` for Cloudflare challenges or
   wrong-page captures before anything touches the DB
+- `find_successful_snapshot_run_for_source_date(session, ...)` — DB-backed completion guard for
+  retry scheduling; checks successful scrape run, source capture date, game snapshots, and prize tiers
 - `run_from_file(session, raw_path, *, min_games, fetch_method)` — validate → parse → import → metrics
   in one call; caller handles commit/rollback (enables dry-run)
 - `PipelineResult` — structured summary of every pipeline step and final DB counts
-- CLI: `scripts/run_nightly_unpaid_prizes_pipeline.py [--dry-run] [--raw-file PATH] [--min-games N]`
+- CLI: `scripts/run_nightly_unpaid_prizes_pipeline.py [--dry-run] [--raw-file PATH] [--min-games N] [--skip-if-today-imported]`
 - Fetch path: `--raw-file` skips network fetch (for re-processing or testing); default path calls
   `collect_raw_snapshot()` which tries `requests` first, falls back to Playwright on 403
 
@@ -135,17 +137,21 @@ Current environment:
 
 Project name: `IllinoisLotteryTracker`
 
-## Next Step: Enable Nightly Scheduling
+## Current Scheduling
 
-The pipeline runner is validated. The next operational step is scheduling it:
+The unpaid-prizes pipeline is scheduled with a user-level systemd timer. It fires up to four
+times each morning. Each run first checks the database for a successful imported snapshot for
+the current source date; if one exists, it exits without fetching.
 
 ```bash
-# cron — runs at 03:00 daily
-0 3 * * * cd /path/to/project && .venv/bin/python scripts/run_nightly_unpaid_prizes_pipeline.py
+# systemd timer attempts
+03:00
+04:00
+05:00
+06:00
 
-# systemd timer — recommended for production (restart on failure, journald logging)
-# Create: /etc/systemd/system/illinois-lottery-nightly.service
-# Create: /etc/systemd/system/illinois-lottery-nightly.timer
+# deployed command includes:
+.venv/bin/python scripts/run_nightly_unpaid_prizes_pipeline.py --skip-if-today-imported
 ```
 
 After reliable nightly data exists for a few weeks, the next milestone is minimal admin/status views.

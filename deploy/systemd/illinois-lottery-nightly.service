@@ -8,7 +8,8 @@ Type=oneshot
 WorkingDirectory=/home/stosh99/projects/IllinoisLotteryTracker
 EnvironmentFile=/home/stosh99/projects/IllinoisLotteryTracker/.env
 ExecStart=/home/stosh99/projects/IllinoisLotteryTracker/.venv/bin/python \
-    /home/stosh99/projects/IllinoisLotteryTracker/scripts/run_nightly_unpaid_prizes_pipeline.py
+    /home/stosh99/projects/IllinoisLotteryTracker/scripts/run_nightly_unpaid_prizes_pipeline.py \
+    --skip-if-today-imported
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=illinois-lottery-nightly

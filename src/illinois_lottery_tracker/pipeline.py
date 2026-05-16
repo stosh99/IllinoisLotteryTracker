@@ -10,10 +10,11 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import exists, func, select
+from sqlalchemy import distinct, exists, func, select
 from sqlalchemy.orm import Session
 
 from .importer import import_unpaid_prizes_parse_result
@@ -21,6 +22,8 @@ from .metrics import compute_snapshot_metrics
 from .models import Game, GameSnapshot, PrizeTierSnapshot, RawSourceSnapshot, ScrapeRun
 from .parser import parse_html
 from .raw_collector import UNPAID_PRIZES_URL
+
+LOCAL_TIME_ZONE = ZoneInfo("America/New_York")
 
 # ---------------------------------------------------------------------------
 # File capture-time extraction
@@ -88,6 +91,58 @@ def validate_unpaid_prizes_html(content: bytes) -> None:
         raise ValidationError(
             "unpaid-prizes table not found — captured page is not the prizes page"
         )
+
+
+def find_successful_snapshot_run_for_source_date(
+    session: Session,
+    *,
+    source_date: date,
+    min_games: int,
+    tz: ZoneInfo = LOCAL_TIME_ZONE,
+) -> int | None:
+    """Return a scrape_run_id for a complete imported snapshot on *source_date*.
+
+    Completion is based on database state, not logs or raw files alone:
+    - scrape_run.status is ``success``
+    - the run has a RawSourceSnapshot whose captured_at falls on *source_date*
+      in the supplied timezone
+    - the run has at least ``min_games`` game snapshots
+    - the run has at least one prize-tier snapshot
+    """
+    rows = session.execute(
+        select(
+            ScrapeRun.id,
+            func.min(RawSourceSnapshot.captured_at).label("source_captured_at"),
+            func.count(distinct(GameSnapshot.id)).label("game_snapshot_count"),
+            func.count(PrizeTierSnapshot.id).label("prize_tier_count"),
+        )
+        .join(RawSourceSnapshot, RawSourceSnapshot.scrape_run_id == ScrapeRun.id)
+        .outerjoin(GameSnapshot, GameSnapshot.scrape_run_id == ScrapeRun.id)
+        .outerjoin(PrizeTierSnapshot, PrizeTierSnapshot.game_snapshot_id == GameSnapshot.id)
+        .where(ScrapeRun.status == "success")
+        .group_by(ScrapeRun.id)
+    ).all()
+
+    candidates: list[tuple[datetime, int]] = []
+    for run_id, captured_at, game_count, tier_count in rows:
+        captured_at = _ensure_aware(captured_at, tz=UTC)
+        if captured_at.astimezone(tz).date() != source_date:
+            continue
+        if game_count < min_games:
+            continue
+        if tier_count < 1:
+            continue
+        candidates.append((captured_at, run_id))
+
+    if not candidates:
+        return None
+    return max(candidates)[1]
+
+
+def _ensure_aware(value: datetime, *, tz: ZoneInfo) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=tz)
+    return value
 
 
 # ---------------------------------------------------------------------------

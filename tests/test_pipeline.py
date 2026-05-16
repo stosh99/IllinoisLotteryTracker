@@ -6,6 +6,7 @@ written to a tmp file. All DB tests use in-memory SQLite.
 
 from __future__ import annotations
 
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,7 @@ from illinois_lottery_tracker.pipeline import (
     DuplicateImportError,
     PipelineResult,
     ValidationError,
+    find_successful_snapshot_run_for_source_date,
     run_from_file,
     validate_unpaid_prizes_html,
 )
@@ -69,6 +71,8 @@ _EMPTY_TABLE_HTML = (
     b"</table></body></html>"
 )
 
+_SOURCE_DATE = date(2026, 5, 15)
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -103,6 +107,80 @@ def wrong_page_file(tmp_path: Path) -> Path:
     path = tmp_path / "wrong-page.html"
     path.write_bytes(_WRONG_PAGE_HTML)
     return path
+
+
+def _scrape_run(
+    session: Session,
+    *,
+    started_at: datetime = datetime(2026, 5, 15, 7, 0, tzinfo=UTC),
+) -> ScrapeRun:
+    run = ScrapeRun(
+        started_at=started_at,
+        finished_at=started_at,
+        status="success",
+        source_url="https://example.test/unpaid",
+        raw_file_path="/tmp/test.html",
+    )
+    session.add(run)
+    session.flush()
+    return run
+
+
+def _raw_source_snapshot(
+    session: Session,
+    run: ScrapeRun,
+    *,
+    captured_at: datetime,
+) -> RawSourceSnapshot:
+    snapshot = RawSourceSnapshot(
+        scrape_run_id=run.id,
+        source_url="https://example.test/unpaid",
+        content_type="text/html",
+        file_path="/tmp/test.html",
+        sha256=f"sha-{run.id}-{captured_at.isoformat()}",
+        captured_at=captured_at,
+    )
+    session.add(snapshot)
+    session.flush()
+    return snapshot
+
+
+def _seed_snapshot_set(
+    session: Session,
+    run: ScrapeRun,
+    *,
+    game_count: int,
+    game_number_start: int = 1000,
+    prize_tiers: bool = True,
+) -> None:
+    for i in range(game_count):
+        game = Game(
+            game_number=str(game_number_start + i),
+            name=f"TEST GAME {i}",
+            ticket_price=5,
+        )
+        session.add(game)
+        session.flush()
+        snapshot = GameSnapshot(
+            game=game,
+            scrape_run=run,
+            total_original_prize_value=100,
+            total_remaining_prize_value=90,
+            total_original_winning_tickets=10,
+            total_remaining_winning_tickets=9,
+        )
+        session.add(snapshot)
+        session.flush()
+        if prize_tiers:
+            session.add(
+                PrizeTierSnapshot(
+                    game_snapshot=snapshot,
+                    prize_amount=100,
+                    original_count=10,
+                    remaining_count=9,
+                )
+            )
+    session.flush()
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +220,141 @@ def test_validate_rejects_wrong_page_no_table_marker():
 def test_validate_accepts_marker_in_comment():
     # The marker appears in a comment — still passes content check.
     validate_unpaid_prizes_html(_EMPTY_TABLE_HTML)  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# find_successful_snapshot_run_for_source_date
+# ---------------------------------------------------------------------------
+
+
+def test_successful_snapshot_guard_empty_db(session: Session):
+    assert (
+        find_successful_snapshot_run_for_source_date(
+            session,
+            source_date=_SOURCE_DATE,
+            min_games=20,
+        )
+        is None
+    )
+
+
+def test_successful_snapshot_guard_ignores_raw_snapshot_without_game_snapshots(
+    session: Session,
+):
+    run = _scrape_run(session)
+    _raw_source_snapshot(session, run, captured_at=datetime(2026, 5, 15, 7, 0, tzinfo=UTC))
+
+    assert (
+        find_successful_snapshot_run_for_source_date(
+            session,
+            source_date=_SOURCE_DATE,
+            min_games=20,
+        )
+        is None
+    )
+
+
+def test_successful_snapshot_guard_requires_minimum_game_snapshots(session: Session):
+    run = _scrape_run(session)
+    _raw_source_snapshot(session, run, captured_at=datetime(2026, 5, 15, 7, 0, tzinfo=UTC))
+    _seed_snapshot_set(session, run, game_count=19)
+
+    assert (
+        find_successful_snapshot_run_for_source_date(
+            session,
+            source_date=_SOURCE_DATE,
+            min_games=20,
+        )
+        is None
+    )
+
+
+def test_successful_snapshot_guard_requires_prize_tiers(session: Session):
+    run = _scrape_run(session)
+    _raw_source_snapshot(session, run, captured_at=datetime(2026, 5, 15, 7, 0, tzinfo=UTC))
+    _seed_snapshot_set(session, run, game_count=20, prize_tiers=False)
+
+    assert (
+        find_successful_snapshot_run_for_source_date(
+            session,
+            source_date=_SOURCE_DATE,
+            min_games=20,
+        )
+        is None
+    )
+
+
+def test_successful_snapshot_guard_returns_complete_run_for_source_date(
+    session: Session,
+):
+    run = _scrape_run(session)
+    _raw_source_snapshot(session, run, captured_at=datetime(2026, 5, 15, 7, 0, tzinfo=UTC))
+    _seed_snapshot_set(session, run, game_count=20)
+
+    assert (
+        find_successful_snapshot_run_for_source_date(
+            session,
+            source_date=_SOURCE_DATE,
+            min_games=20,
+        )
+        == run.id
+    )
+
+
+def test_successful_snapshot_guard_uses_source_date_not_import_date(
+    session: Session,
+):
+    run = _scrape_run(session, started_at=datetime(2026, 5, 16, 1, 0, tzinfo=UTC))
+    _raw_source_snapshot(session, run, captured_at=datetime(2026, 5, 15, 7, 0, tzinfo=UTC))
+    _seed_snapshot_set(session, run, game_count=20)
+
+    assert (
+        find_successful_snapshot_run_for_source_date(
+            session,
+            source_date=_SOURCE_DATE,
+            min_games=20,
+        )
+        == run.id
+    )
+
+
+def test_successful_snapshot_guard_ignores_other_source_dates(session: Session):
+    run = _scrape_run(session)
+    _raw_source_snapshot(session, run, captured_at=datetime(2026, 5, 14, 7, 0, tzinfo=UTC))
+    _seed_snapshot_set(session, run, game_count=20)
+
+    assert (
+        find_successful_snapshot_run_for_source_date(
+            session,
+            source_date=_SOURCE_DATE,
+            min_games=20,
+        )
+        is None
+    )
+
+
+def test_successful_snapshot_guard_returns_latest_complete_run_for_date(
+    session: Session,
+):
+    older = _scrape_run(session)
+    newer = _scrape_run(session)
+    _raw_source_snapshot(
+        session, older, captured_at=datetime(2026, 5, 15, 7, 0, tzinfo=UTC)
+    )
+    _raw_source_snapshot(
+        session, newer, captured_at=datetime(2026, 5, 15, 10, 0, tzinfo=UTC)
+    )
+    _seed_snapshot_set(session, older, game_count=20)
+    _seed_snapshot_set(session, newer, game_count=20, game_number_start=2000)
+
+    assert (
+        find_successful_snapshot_run_for_source_date(
+            session,
+            source_date=_SOURCE_DATE,
+            min_games=20,
+        )
+        == newer.id
+    )
 
 
 # ---------------------------------------------------------------------------

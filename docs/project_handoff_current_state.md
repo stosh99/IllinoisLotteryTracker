@@ -224,14 +224,15 @@ Implemented nightly unpaid-prizes pipeline runner:
 `scripts/run_nightly_unpaid_prizes_pipeline.py`
 
 Pipeline does:
-1. collect fresh unpaid-prizes raw HTML
-2. preserve raw file
-3. validate source content
-4. parse unpaid-prizes data
-5. import new snapshot set
-6. compute metrics
-7. print summary
-8. exit nonzero on real validation/import failures
+1. optionally skip if today's successful DB snapshot already exists
+2. collect fresh unpaid-prizes raw HTML
+3. preserve raw file
+4. validate source content
+5. parse unpaid-prizes data
+6. import new snapshot set
+7. compute metrics
+8. print summary
+9. exit nonzero on real validation/import failures
 
 Duplicate guard:
 - SHA256 content based
@@ -239,11 +240,18 @@ Duplicate guard:
 - clean skip exits 0
 - `--force` can override intentionally
 
+Scheduler completion guard:
+- `--skip-if-today-imported`
+- checks database state, not logs or raw files alone
+- requires successful scrape run for today's source date
+- requires enough game snapshots and at least one prize-tier snapshot
+- lets repeated timer attempts exit without fetching once the day is complete
+
 Confirmed behavior:
 
 ```text
 SKIP: content (sha256=3141f3e10cc35e7c...) was already imported as scrape_run_id=1; use --force to override
-
+```
 
 Scheduling
 
@@ -260,7 +268,8 @@ Installed user timer:
 illinois-lottery-nightly.timer
 triggers illinois-lottery-nightly.service
 active/waiting
-runs around 03:00 EDT with jitter
+attempts around 03:00, 04:00, 05:00, and 06:00 EDT with jitter
+later attempts skip if today's successful imported snapshot already exists
 Persistent=true
 
 Useful commands:
@@ -358,7 +367,6 @@ Add Phase 1 normalized snapshot metrics and launch-comparison metrics.
 Do not build UI yet.
 Do not add player-style composite scores yet.
 Do not add prize-bucket metrics yet.
-Do not change scheduler/systemd setup.
 Do not fetch live network data.
 Do not fabricate metadata for game 7587.
 

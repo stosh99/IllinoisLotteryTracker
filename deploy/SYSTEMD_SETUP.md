@@ -1,6 +1,9 @@
 # Systemd Scheduling Setup
 
-Runs the nightly unpaid-prizes pipeline as a systemd user service (no root required).
+Runs the unpaid-prizes pipeline as a systemd user service (no root required).
+The timer fires four times each morning. Each run first checks the database for
+a successful imported snapshot for the current source date; if one already
+exists, it exits without fetching.
 
 ## Prerequisites
 
@@ -86,7 +89,8 @@ Or run the script directly from a shell (useful for debugging):
 ```bash
 cd /home/stosh99/projects/IllinoisLotteryTracker
 env $(grep -v '^#' .env | xargs) \
-    .venv/bin/python scripts/run_nightly_unpaid_prizes_pipeline.py
+    .venv/bin/python scripts/run_nightly_unpaid_prizes_pipeline.py \
+    --skip-if-today-imported
 ```
 
 Dry-run (parse and import but roll back — no DB writes):
@@ -123,7 +127,7 @@ systemctl --user daemon-reload
 
 | Setting | Value | Effect |
 |---|---|---|
-| `OnCalendar` | `*-*-* 03:00:00` | Fires daily at 03:00 local time (America/New_York) |
+| `OnCalendar` | `*-*-* 03:00:00`, `04:00:00`, `05:00:00`, `06:00:00` | Up to four daily attempts, stopping naturally once the database has today's successful snapshot |
 | `AccuracySec` | `1s` | Near-exact firing time (default is 1 minute) |
 | `RandomizedDelaySec` | `300` | Random 0–5 min jitter to avoid thundering-herd |
 | `Persistent` | `true` | Runs immediately on next boot if a scheduled run was missed |
