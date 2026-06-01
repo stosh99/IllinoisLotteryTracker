@@ -17,6 +17,8 @@ from illinois_lottery_tracker.metrics_report import (
     build_metrics_report,
     caution_rows,
     depleted_top_prize_rows,
+    format_odds,
+    format_overall_odds,
     format_money,
     format_percent,
     missing_odds_rows,
@@ -29,6 +31,7 @@ from illinois_lottery_tracker.models import (
     Base,
     Game,
     GameSnapshot,
+    PrizeTierSnapshot,
     RawSourceSnapshot,
     ScrapeRun,
 )
@@ -121,6 +124,65 @@ def test_formatting_percent_money_and_na():
     assert format_percent(None) == "N/A"
     assert format_money(Decimal("7.49")) == "$7.49"
     assert format_money(None) == "N/A"
+    assert format_odds(Decimal("1234.4")) == "1 in 1,234"
+    assert format_odds(None) == "N/A"
+    assert format_overall_odds(Decimal("2.9700")) == "1 in 2.97"
+
+
+def test_game_detail_section_renders_original_and_current_tier_odds(session: Session):
+    run = _run(session, started_at=T1)
+    _raw_snap(session, run, captured_at=T1)
+    game = _game(session, game_number="7639", name="$1,000,000 CROSSWORD 50X")
+    game.overall_odds_one_in = Decimal("4.0")
+    game.est_total_tickets = 400
+    snap = _snapshot(
+        session,
+        game,
+        run,
+        estimated_ev=Decimal("8.00"),
+        estimated_payout_ratio=Decimal("0.80"),
+        total_original_winning_tickets=100,
+        total_remaining_winning_tickets=50,
+        estimated_tickets_remaining=200,
+    )
+    session.add_all(
+        [
+            PrizeTierSnapshot(
+                game_snapshot=snap,
+                prize_amount=Decimal("1000"),
+                original_count=2,
+                remaining_count=1,
+                claimed_count=1,
+            ),
+            PrizeTierSnapshot(
+                game_snapshot=snap,
+                prize_amount=Decimal("50"),
+                original_count=20,
+                remaining_count=10,
+                claimed_count=10,
+            ),
+        ]
+    )
+    session.flush()
+
+    report = build_metrics_report(session)
+    text = render_text_report(
+        report,
+        section=MetricsReportSection.GAME,
+        game_number="7639",
+    )
+
+    assert "Game Detail" in text
+    assert "Orig odds" in text
+    assert "Est odds now" in text
+    assert "$1,000.00" in text
+    assert "1 in 200" in text
+    assert "$50.00" in text
+    assert "1 in 20" in text
+    assert "Totals" in text
+    assert "100" in text
+    assert "50" in text
+    assert "1 in 4" in text
 
 
 def test_caution_rows_are_descriptive_candidates(session: Session):
@@ -235,6 +297,9 @@ def _snapshot(
     top_prize_depleted: bool | None = False,
     top_prizes_original: int | None = 2,
     top_prizes_remaining: int | None = 1,
+    total_original_winning_tickets: int | None = None,
+    total_remaining_winning_tickets: int | None = None,
+    estimated_tickets_remaining: int | None = None,
 ) -> GameSnapshot:
     snap = GameSnapshot(
         game=game,
@@ -256,6 +321,9 @@ def _snapshot(
         top_prize_depleted=top_prize_depleted,
         top_prizes_original=top_prizes_original,
         top_prizes_remaining=top_prizes_remaining,
+        total_original_winning_tickets=total_original_winning_tickets,
+        total_remaining_winning_tickets=total_remaining_winning_tickets,
+        estimated_tickets_remaining=estimated_tickets_remaining,
     )
     session.add(snap)
     session.flush()

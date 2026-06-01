@@ -19,6 +19,7 @@ from .models import Game, GameSnapshot, RawSourceSnapshot, ScrapeRun
 
 class MetricsReportSection(StrEnum):
     ALL = "all"
+    GAME = "game"
     PAYOUT = "payout"
     EXCLUDING_TOP = "excluding-top"
     LAUNCH = "launch"
@@ -50,10 +51,24 @@ class MetricsReportRow:
     top_prize_depleted: bool | None
     top_prizes_original: int | None
     top_prizes_remaining: int | None
+    overall_odds_one_in: Decimal | None = None
+    est_total_tickets: int | None = None
+    estimated_tickets_remaining: int | None = None
+    total_original_winning_tickets: int | None = None
+    total_remaining_winning_tickets: int | None = None
+    prize_tiers: tuple["MetricsPrizeTierRow", ...] = ()
 
     @property
     def has_odds_dependent_metrics(self) -> bool:
         return self.estimated_payout_ratio is not None
+
+
+@dataclass(frozen=True)
+class MetricsPrizeTierRow:
+    prize_amount: Decimal
+    original_count: int | None
+    remaining_count: int | None
+    claimed_count: int | None
 
 
 @dataclass(frozen=True)
@@ -89,7 +104,11 @@ def build_metrics_report(session: Session) -> MetricsReport:
             select(GameSnapshot)
             .join(Game)
             .where(Game.is_active.is_(True))
-            .options(selectinload(GameSnapshot.game), selectinload(GameSnapshot.scrape_run))
+            .options(
+                selectinload(GameSnapshot.game),
+                selectinload(GameSnapshot.scrape_run),
+                selectinload(GameSnapshot.prize_tiers),
+            )
         )
     )
 
@@ -165,6 +184,17 @@ def missing_odds_rows(
     return rows if limit is None else rows[:limit]
 
 
+def game_detail_row(
+    report: MetricsReport,
+    *,
+    game_number: str,
+) -> MetricsReportRow | None:
+    for row in report.rows:
+        if row.game_number == game_number:
+            return row
+    return None
+
+
 def caution_rows(
     report: MetricsReport,
     *,
@@ -211,6 +241,19 @@ def format_count_pair(remaining: int | None, original: int | None) -> str:
     return f"{remaining:,}/{original:,}"
 
 
+def format_odds(value: Decimal | None) -> str:
+    if value is None:
+        return "N/A"
+    return f"1 in {value:,.0f}"
+
+
+def format_overall_odds(value: Decimal | None) -> str:
+    if value is None:
+        return "N/A"
+    text = f"{value:,.4f}".rstrip("0").rstrip(".")
+    return f"1 in {text}"
+
+
 def format_datetime(value: datetime | None) -> str:
     if value is None:
         return "N/A"
@@ -222,6 +265,7 @@ def render_text_report(
     *,
     limit: int = 10,
     section: MetricsReportSection = MetricsReportSection.ALL,
+    game_number: str | None = None,
 ) -> str:
     lines: list[str] = []
     _render_header(lines, report)
@@ -240,7 +284,9 @@ def render_text_report(
     )
     for selected in sections:
         lines.append("")
-        if selected is MetricsReportSection.PAYOUT:
+        if selected is MetricsReportSection.GAME:
+            _render_game_detail(lines, report, game_number=game_number)
+        elif selected is MetricsReportSection.PAYOUT:
             _render_payout(lines, top_estimated_payout_rows(report, limit=limit))
         elif selected is MetricsReportSection.EXCLUDING_TOP:
             _render_excluding_top(lines, top_excluding_top_prize_rows(report, limit=limit))
@@ -315,6 +361,24 @@ def _row_from_snapshot(
         top_prize_depleted=snapshot.top_prize_depleted,
         top_prizes_original=snapshot.top_prizes_original,
         top_prizes_remaining=snapshot.top_prizes_remaining,
+        overall_odds_one_in=game.overall_odds_one_in,
+        est_total_tickets=game.est_total_tickets,
+        estimated_tickets_remaining=snapshot.estimated_tickets_remaining,
+        total_original_winning_tickets=snapshot.total_original_winning_tickets,
+        total_remaining_winning_tickets=snapshot.total_remaining_winning_tickets,
+        prize_tiers=tuple(
+            MetricsPrizeTierRow(
+                prize_amount=tier.prize_amount,
+                original_count=tier.original_count,
+                remaining_count=tier.remaining_count,
+                claimed_count=tier.claimed_count,
+            )
+            for tier in sorted(
+                snapshot.prize_tiers,
+                key=lambda tier: tier.prize_amount,
+                reverse=True,
+            )
+        ),
     )
 
 
@@ -355,6 +419,75 @@ def _render_header(lines: list[str], report: MetricsReport) -> None:
             f"Games with odds metrics:   {report.odds_metric_count}",
             f"Games missing odds metrics:{report.missing_odds_metric_count:>6}",
         ]
+    )
+
+
+def _render_game_detail(
+    lines: list[str],
+    report: MetricsReport,
+    *,
+    game_number: str | None,
+) -> None:
+    lines.append("Game Detail")
+    lines.append("-----------")
+    if not game_number:
+        lines.append("  Provide --game-number to render game detail.")
+        return
+
+    row = game_detail_row(report, game_number=game_number)
+    if row is None:
+        lines.append(f"  No active game found for game_number={game_number}.")
+        return
+
+    original_tickets = _original_ticket_denominator(row)
+    lines.extend(
+        [
+            f"[{row.game_number}] {row.game_name}",
+            f"price={format_money(row.ticket_price)} "
+            f"overall_odds={format_overall_odds(row.overall_odds_one_in)} "
+            f"snapshot={row.snapshot_id}",
+            f"estimated_original_tickets={_fmt_int(original_tickets)} "
+            f"estimated_tickets_remaining={_fmt_int(row.estimated_tickets_remaining)}",
+            f"est_ev={format_money(row.estimated_ev)} "
+            f"est_payout={format_percent(row.estimated_payout_ratio)} "
+            f"ev_vs_launch={format_percent(row.ev_vs_launch_ratio)}",
+            f"remaining_prize_value={format_percent(row.remaining_prize_value_pct)} "
+            f"remaining_winning_tickets={format_percent(row.remaining_winning_tickets_pct)} "
+            f"top_prizes={format_count_pair(row.top_prizes_remaining, row.top_prizes_original)}",
+            "",
+            "Prize Tiers",
+            "      Prize    Original    Remaining      Claimed    Orig odds    Est odds now",
+        ]
+    )
+    for tier in row.prize_tiers:
+        original_odds = _tier_odds(original_tickets, tier.original_count)
+        estimated_odds_now = _tier_odds(
+            row.estimated_tickets_remaining,
+            tier.remaining_count,
+        )
+        lines.append(
+            f"{format_money(tier.prize_amount):>11} "
+            f"{_fmt_int(tier.original_count):>11} "
+            f"{_fmt_int(tier.remaining_count):>12} "
+            f"{_fmt_int(tier.claimed_count):>12} "
+            f"{format_odds(original_odds):>12} "
+            f"{format_odds(estimated_odds_now):>15}"
+        )
+    total_claimed = _count_difference(
+        row.total_original_winning_tickets,
+        row.total_remaining_winning_tickets,
+    )
+    current_overall_odds = _tier_odds(
+        row.estimated_tickets_remaining,
+        row.total_remaining_winning_tickets,
+    )
+    lines.append(
+        f"{'Totals':>11} "
+        f"{_fmt_int(row.total_original_winning_tickets):>11} "
+        f"{_fmt_int(row.total_remaining_winning_tickets):>12} "
+        f"{_fmt_int(total_claimed):>12} "
+        f"{format_overall_odds(row.overall_odds_one_in):>12} "
+        f"{format_overall_odds(current_overall_odds):>15}"
     )
 
 
@@ -477,3 +610,32 @@ def _fmt_bool(value: bool | None) -> str:
     if value is None:
         return "N/A"
     return "yes" if value else "no"
+
+
+def _fmt_int(value: int | None) -> str:
+    if value is None:
+        return "N/A"
+    return f"{value:,}"
+
+
+def _original_ticket_denominator(row: MetricsReportRow) -> int | None:
+    if row.est_total_tickets is not None:
+        return row.est_total_tickets
+    if row.total_original_winning_tickets is None or row.overall_odds_one_in is None:
+        return None
+    return round(Decimal(row.total_original_winning_tickets) * row.overall_odds_one_in)
+
+
+def _tier_odds(
+    ticket_denominator: int | None,
+    prize_count: int | None,
+) -> Decimal | None:
+    if ticket_denominator is None or not prize_count:
+        return None
+    return Decimal(ticket_denominator) / Decimal(prize_count)
+
+
+def _count_difference(original: int | None, remaining: int | None) -> int | None:
+    if original is None or remaining is None:
+        return None
+    return original - remaining

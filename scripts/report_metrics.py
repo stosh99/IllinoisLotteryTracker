@@ -45,6 +45,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Report section to print (default: all).",
     )
     parser.add_argument(
+        "--game-number",
+        metavar="NUMBER",
+        help="Game number for --section game.",
+    )
+    parser.add_argument(
         "--format",
         choices=["text"],
         default="text",
@@ -69,6 +74,7 @@ def main(argv: list[str] | None = None) -> int:
             report,
             limit=args.limit,
             section=MetricsReportSection(args.section),
+            game_number=args.game_number,
         ),
         end="",
     )

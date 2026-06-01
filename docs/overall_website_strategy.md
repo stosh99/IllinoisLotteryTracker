@@ -27,6 +27,9 @@ These caveats should be visible throughout the site, not hidden only in a footer
 - Lottery games remain negative expected value overall.
 - The site is for analysis and transparency, not gambling advice or outcome prediction.
 
+See `docs/mail_in_prize_lag_model.md` for the planned report-only approach to
+estimating claim-reporting lag for non-top prizes of `$600` or more.
+
 Suggested short caveat language:
 
 > Estimated values are based on public unclaimed-prize data. Unclaimed prizes may not equal unsold tickets, and large claims may lag.
