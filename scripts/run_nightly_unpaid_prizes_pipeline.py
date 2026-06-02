@@ -27,6 +27,12 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from illinois_lottery_tracker.db import get_engine
+from illinois_lottery_tracker.metadata_backfill import (
+    backfill_missing_game_metadata,
+    render_metadata_backfill_result,
+    stderr_progress,
+)
+from illinois_lottery_tracker.metrics import compute_snapshot_metrics
 from illinois_lottery_tracker.pipeline import (
     LOCAL_TIME_ZONE,
     DuplicateImportError,
@@ -35,6 +41,18 @@ from illinois_lottery_tracker.pipeline import (
     run_from_file,
 )
 from illinois_lottery_tracker.raw_collector import UNPAID_PRIZES_URL, collect_raw_snapshot
+
+
+def _run_metadata_backfill(session: Session, *, max_detail_pages: int | None):
+    metadata_result = backfill_missing_game_metadata(
+        session,
+        max_detail_pages=max_detail_pages,
+        progress=stderr_progress,
+    )
+    metadata_metrics_result = (
+        compute_snapshot_metrics(session) if metadata_result.changed_games else None
+    )
+    return metadata_result, metadata_metrics_result
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -71,6 +89,20 @@ def main(argv: list[str] | None = None) -> int:
             "already has a successful imported snapshot set."
         ),
     )
+    parser.add_argument(
+        "--backfill-missing-metadata",
+        action="store_true",
+        help=(
+            "After importing the unpaid-prizes snapshot, fetch current instant-ticket "
+            "detail pages and fill missing game metadata such as launch_date and odds."
+        ),
+    )
+    parser.add_argument(
+        "--metadata-max-detail-pages",
+        type=int,
+        metavar="N",
+        help="Maximum instant-ticket detail pages to fetch during metadata backfill.",
+    )
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
 
     fetch_method: str | None = None
@@ -95,6 +127,41 @@ def main(argv: list[str] | None = None) -> int:
                     f"SKIP: successful imported snapshot already exists for "
                     f"{today.isoformat()} as scrape_run_id={existing_run_id}."
                 )
+                if args.backfill_missing_metadata:
+                    with Session(engine, expire_on_commit=False, future=True) as session:
+                        try:
+                            metadata_result, metadata_metrics_result = _run_metadata_backfill(
+                                session,
+                                max_detail_pages=args.metadata_max_detail_pages,
+                            )
+                            if args.dry_run:
+                                session.rollback()
+                            else:
+                                session.commit()
+                        except Exception as exc:  # noqa: BLE001
+                            session.rollback()
+                            print(
+                                f"WARNING: metadata backfill failed: {exc}",
+                                file=sys.stderr,
+                            )
+                        else:
+                            print()
+                            print(render_metadata_backfill_result(metadata_result), end="")
+                            if metadata_metrics_result is not None:
+                                print()
+                                print("Metadata metrics recompute:")
+                                print(
+                                    f"  Games updated:                "
+                                    f"{metadata_metrics_result.games_updated}"
+                                )
+                                print(
+                                    f"  Snapshots computed:           "
+                                    f"{metadata_metrics_result.snapshots_computed}"
+                                )
+                                print(
+                                    f"  Skipped no odds:              "
+                                    f"{metadata_metrics_result.snapshots_skipped_no_odds}"
+                                )
                 return 0
 
         print(f"Fetching {UNPAID_PRIZES_URL} ...", flush=True)
@@ -111,6 +178,9 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     engine = get_engine()
+    metadata_result = None
+    metadata_warning: str | None = None
+    metadata_metrics_result = None
     with Session(engine, expire_on_commit=False, future=True) as session:
         try:
             result = run_from_file(
@@ -120,6 +190,15 @@ def main(argv: list[str] | None = None) -> int:
                 fetch_method=fetch_method,
                 force=args.force,
             )
+            if args.backfill_missing_metadata:
+                try:
+                    with session.begin_nested():
+                        metadata_result, metadata_metrics_result = _run_metadata_backfill(
+                            session,
+                            max_detail_pages=args.metadata_max_detail_pages,
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    metadata_warning = f"metadata backfill failed: {exc}"
         except DuplicateImportError as exc:
             print(f"SKIP: {exc}", file=sys.stderr)
             return 0
@@ -160,6 +239,24 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Total games:                     {result.total_games}")
     print(f"Total game_snapshots:            {result.total_snapshots}")
     print(f"Total prize_tier_snapshots:      {result.total_prize_tiers}")
+
+    if metadata_result is not None:
+        print()
+        print(render_metadata_backfill_result(metadata_result), end="")
+    if metadata_metrics_result is not None:
+        print()
+        print("Metadata metrics recompute:")
+        print(f"  Games updated:                {metadata_metrics_result.games_updated}")
+        print(
+            f"  Snapshots computed:           "
+            f"{metadata_metrics_result.snapshots_computed}"
+        )
+        print(
+            f"  Skipped no odds:              "
+            f"{metadata_metrics_result.snapshots_skipped_no_odds}"
+        )
+    if metadata_warning is not None:
+        print(f"\nWARNING: {metadata_warning}", file=sys.stderr)
 
     if result.import_issues:
         print(f"\nImport issues ({len(result.import_issues)}):")
