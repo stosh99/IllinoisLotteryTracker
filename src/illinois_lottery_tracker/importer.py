@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from .instant_ticket_detail_parser import ParsedInstantTicketDetail
 from .models import Game, GameSnapshot, PrizeTierSnapshot, ScrapeRun
 from .parser import ParsedGame, ParsedPrizeTier, ParseResult, ParseWarning
+from .source_quality import structure_fingerprint
 
 _TOP_PRIZE_RE = re.compile(r"\$\s*([\d,]+(?:\.\d+)?)")
 
@@ -97,6 +98,10 @@ def _detail_name(parsed: ParsedInstantTicketDetail) -> str | None:
     return parsed.game_name or parsed.display_name
 
 
+def _identity_name(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", value.casefold())
+
+
 def _top_prize_amount(text: str | None) -> Decimal | None:
     if not text:
         return None
@@ -131,10 +136,16 @@ def _build_game_snapshot(
     captured_at: datetime | None,
 ) -> GameSnapshot:
     top = _top_tier(parsed.prize_tiers)
+    fingerprint = structure_fingerprint(
+        (Decimal(tier.prize_amount), tier.total_prizes)
+        for tier in parsed.prize_tiers
+        if tier.prize_amount is not None and tier.total_prizes is not None
+    )
     return GameSnapshot(
         game=game,
         scrape_run=scrape_run,
         captured_at=captured_at or scrape_run.finished_at or scrape_run.started_at,
+        structure_fingerprint=fingerprint,
         total_original_prize_value=_sum_prize_value(parsed.prize_tiers, "total_prizes"),
         total_remaining_prize_value=_sum_prize_value(
             parsed.prize_tiers, "unclaimed_prizes"
@@ -300,6 +311,51 @@ def import_instant_ticket_detail_metadata(
             session.add(game)
             created = True
 
+        parsed_price = (
+            _money(detail.ticket_price) if detail.ticket_price is not None else None
+        )
+        if not created:
+            identity_conflicts: list[str] = []
+            if (
+                name
+                and game.name
+                and _identity_name(game.name) != _identity_name(name)
+            ):
+                identity_conflicts.append(
+                    "game_name/display_name mismatch: "
+                    f"existing={game.name!r} parsed={name!r}"
+                )
+            if (
+                parsed_price is not None
+                and game.ticket_price is not None
+                and game.ticket_price != parsed_price
+            ):
+                identity_conflicts.append(
+                    "ticket_price mismatch: "
+                    f"existing={game.ticket_price!s} parsed={parsed_price!s}"
+                )
+            if (
+                detail.source_url
+                and game.source_url
+                and game.source_url.rstrip("/") != detail.source_url.rstrip("/")
+            ):
+                identity_conflicts.append(
+                    f"source_url existing={game.source_url!r} parsed={detail.source_url!r}"
+                )
+            if identity_conflicts:
+                details_skipped += 1
+                issues.append(
+                    ImportIssue(
+                        message=(
+                            "skipped detail metadata because identity fields conflict: "
+                            + "; ".join(identity_conflicts)
+                        ),
+                        game_number=detail.game_number,
+                        game_name=name,
+                    )
+                )
+                continue
+
         changed = created
 
         if name:
@@ -321,7 +377,7 @@ def import_instant_ticket_detail_metadata(
                 changed = True
 
         if detail.ticket_price is not None:
-            parsed_price = _money(detail.ticket_price)
+            assert parsed_price is not None
             if game.ticket_price is not None and game.ticket_price != parsed_price:
                 issues.append(
                     ImportIssue(

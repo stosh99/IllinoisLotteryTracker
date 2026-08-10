@@ -16,7 +16,13 @@ from illinois_lottery_tracker.metadata_backfill import (
     find_missing_metadata_games,
     ignored_missing_metadata_game_numbers,
 )
-from illinois_lottery_tracker.models import Base, Game, GameSnapshot, ScrapeRun
+from illinois_lottery_tracker.models import (
+    Base,
+    Game,
+    GameSnapshot,
+    MetadataAttempt,
+    ScrapeRun,
+)
 from illinois_lottery_tracker.raw_collector import BatchPageResult, RawCollectionResult
 
 
@@ -34,15 +40,15 @@ def settings(tmp_path: Path) -> Settings:
     return Settings(database_url="sqlite+pysqlite:///:memory:", raw_data_dir=str(tmp_path))
 
 
-def test_find_missing_metadata_excludes_known_ignored_game(session: Session):
+def test_find_missing_metadata_has_no_hard_coded_game_exception(session: Session):
     _game_with_snapshot(session, game_number="7661", name="$3 MILLION VAULT")
     _game_with_snapshot(session, game_number="7587", name="$250,000 CROSSWORD")
 
     missing = find_missing_metadata_games(session)
     ignored = ignored_missing_metadata_game_numbers(session)
 
-    assert [game.game_number for game in missing] == ["7661"]
-    assert ignored == ("7587",)
+    assert [game.game_number for game in missing] == ["7587", "7661"]
+    assert ignored == ()
 
 
 def test_backfill_missing_game_metadata_imports_matching_detail(
@@ -51,7 +57,6 @@ def test_backfill_missing_game_metadata_imports_matching_detail(
     tmp_path: Path,
 ):
     _game_with_snapshot(session, game_number="7661", name="$3 MILLION VAULT")
-    _game_with_snapshot(session, game_number="7587", name="$250,000 CROSSWORD")
 
     hub_file = tmp_path / "hub.html"
     hub_file.write_text(
@@ -66,6 +71,10 @@ def test_backfill_missing_game_metadata_imports_matching_detail(
             <a aria-label="Older Game Find out more"
                href="/games-hub/instant-tickets/older-game">More</a>
             <span class="simple-game-card-prize__price">$5</span>
+          </div>
+          <div class="itg-container__pagination">
+            <span class="itg-container__pagination-range">1 - 2</span>
+            <span class="itg-container__pagination-of-text">of 2</span>
           </div>
         </body></html>
         """,
@@ -137,9 +146,10 @@ def test_backfill_missing_game_metadata_imports_matching_detail(
 
     game = session.scalar(select(Game).where(Game.game_number == "7661"))
     assert game is not None
-    assert result.missing_before == 2
-    assert result.ignored_known_missing == ("7587",)
+    assert result.missing_before == 1
+    assert result.ignored_known_missing == ()
     assert result.attempted_games == ("7661",)
+    assert result.detail_pages_fetched == 1
     assert result.matching_details == 1
     assert result.games_updated == 1
     assert result.still_missing == ()
@@ -149,6 +159,94 @@ def test_backfill_missing_game_metadata_imports_matching_detail(
     assert game.launch_date is not None
     assert game.launch_date.isoformat() == "2026-05-20"
     assert game.overall_odds_one_in == Decimal("3.12")
+
+
+def test_retry_backoff_prevents_premature_second_fetch(
+    session: Session,
+    settings: Settings,
+    tmp_path: Path,
+):
+    game = _game_with_snapshot(session, game_number="7587", name="$250,000 CROSSWORD")
+    now = datetime(2026, 8, 8, 12, tzinfo=UTC)
+    session.add(
+        MetadataAttempt(
+            game_id=game.id,
+            attempted_at=now,
+            outcome_code="no_candidate",
+            attempt_number=1,
+            next_retry_at=datetime(2026, 8, 9, 12, tzinfo=UTC),
+        )
+    )
+    session.flush()
+
+    def unexpected_collect(**_: object) -> RawCollectionResult:
+        raise AssertionError("catalog must not be collected before retry is due")
+
+    result = backfill_missing_game_metadata(
+        session,
+        settings=settings,
+        collect_raw_snapshot_fn=unexpected_collect,
+        now=datetime(2026, 8, 8, 18, tzinfo=UTC),
+    )
+
+    assert result.attempted_games == ()
+    assert result.not_due_games == ("7587",)
+    assert session.scalar(select(MetadataAttempt).where(MetadataAttempt.game_id == game.id))
+
+
+def test_ambiguous_catalog_match_fetches_no_arbitrary_page(
+    session: Session,
+    settings: Settings,
+    tmp_path: Path,
+):
+    game = _game_with_snapshot(session, game_number="8000", name="LUCKY & RICH")
+    hub_file = tmp_path / "ambiguous-hub.html"
+    hub_file.write_text(
+        """
+        <div class="simple-game-card"><a aria-label="Lucky and Rich Find out more"
+          href="/games-hub/instant-tickets/lucky-rich-a">More</a>
+          <span class="simple-game-card-prize__price">$20</span></div>
+        <div class="simple-game-card"><a aria-label="Lucky &amp; Rich Find out more"
+          href="/games-hub/instant-tickets/lucky-rich-b">More</a>
+          <span class="simple-game-card-prize__price">$20</span></div>
+        <div class="itg-container__pagination">
+          <span class="itg-container__pagination-range">1 - 2</span>
+          <span class="itg-container__pagination-of-text">of 2</span>
+        </div>
+        """,
+        encoding="utf-8",
+    )
+
+    def fake_collect(**_: object) -> RawCollectionResult:
+        return RawCollectionResult(
+            source_url="https://www.illinoislottery.com/games-hub/instant-tickets",
+            file_path=str(hub_file),
+            sha256="a" * 64,
+            captured_at=datetime(2026, 8, 8, 12, tzinfo=UTC),
+            content_type="text/html",
+            bytes_written=hub_file.stat().st_size,
+            fetch_method="playwright",
+        )
+
+    def unexpected_batch(*_: object, **__: object) -> list[BatchPageResult]:
+        raise AssertionError("ambiguous candidates must not be fetched")
+
+    result = backfill_missing_game_metadata(
+        session,
+        settings=settings,
+        collect_raw_snapshot_fn=fake_collect,
+        collect_pages_batch_fn=unexpected_batch,
+        now=datetime(2026, 8, 8, 12, tzinfo=UTC),
+    )
+
+    attempt = session.scalar(
+        select(MetadataAttempt).where(MetadataAttempt.game_id == game.id)
+    )
+    assert result.ambiguous_games == ("8000",)
+    assert result.detail_pages_fetched == 0
+    assert attempt is not None
+    assert attempt.outcome_code == "ambiguous"
+    assert attempt.next_retry_at == datetime(2026, 8, 9, 12)
 
 
 def _game_with_snapshot(

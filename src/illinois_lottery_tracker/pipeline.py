@@ -9,21 +9,73 @@ from __future__ import annotations
 
 import hashlib
 import re
+import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import distinct, exists, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import Engine, distinct, exists, func, select, text
+from sqlalchemy.orm import Session, sessionmaker
 
+from .analytics.persistence import acquire_analytics_run, mark_analytics_run_failed
+from .analytics.service import (
+    calibrate_claim_lag,
+    compute_regular_analytics,
+    finalize_high_tier_analytics,
+)
 from .importer import import_unpaid_prizes_parse_result
+from .lifecycle import synchronize_active_games
 from .metrics import compute_snapshot_metrics
 from .models import Game, GameSnapshot, PrizeTierSnapshot, RawSourceSnapshot, ScrapeRun
 from .parser import parse_html
 from .raw_collector import UNPAID_PRIZES_URL
+from .source_quality import (
+    CHICAGO_TIME_ZONE,
+    assess_parse_result,
+    chicago_source_date,
+    evaluate_source_completeness,
+)
 
-LOCAL_TIME_ZONE = ZoneInfo("America/New_York")
+LOCAL_TIME_ZONE = CHICAGO_TIME_ZONE
+PIPELINE_VERSION = "unpaid-prizes-v2"
+PARSER_VERSION = "unpaid-prizes-html-v1"
+ORCHESTRATION_ADVISORY_LOCK_KEY = 4_927_604_981_102_026
+_SQLITE_ORCHESTRATION_LOCK = threading.Lock()
+
+
+@contextmanager
+def orchestration_lock(engine: Engine):
+    """Yield whether this process acquired the project-wide nightly lock.
+
+    PostgreSQL uses a session advisory lock on an autocommit connection, so
+    holding the orchestration lock during network collection never holds an
+    open database transaction. SQLite uses a process-local lock for tests.
+    """
+    if engine.dialect.name != "postgresql":
+        acquired = _SQLITE_ORCHESTRATION_LOCK.acquire(blocking=False)
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                _SQLITE_ORCHESTRATION_LOCK.release()
+        return
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        acquired = bool(
+            connection.scalar(
+                text("SELECT pg_try_advisory_lock(:key)"),
+                {"key": ORCHESTRATION_ADVISORY_LOCK_KEY},
+            )
+        )
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                connection.execute(
+                    text("SELECT pg_advisory_unlock(:key)"),
+                    {"key": ORCHESTRATION_ADVISORY_LOCK_KEY},
+                )
 
 # ---------------------------------------------------------------------------
 # File capture-time extraction
@@ -75,6 +127,17 @@ class DuplicateImportError(ValidationError):
     """
 
 
+class SourceQuarantinedError(ValidationError):
+    """Raised after recording a parsed source that failed completeness gates."""
+
+    def __init__(self, scrape_run_id: int, reasons: tuple[str, ...]) -> None:
+        self.scrape_run_id = scrape_run_id
+        self.reasons = reasons
+        super().__init__(
+            f"source quarantined as scrape_run_id={scrape_run_id}: {', '.join(reasons)}"
+        )
+
+
 def validate_unpaid_prizes_html(content: bytes) -> None:
     """Raise ``ValidationError`` when *content* is not a valid unpaid-prizes page.
 
@@ -109,6 +172,25 @@ def find_successful_snapshot_run_for_source_date(
     - the run has at least ``min_games`` game snapshots
     - the run has at least one prize-tier snapshot
     """
+    provenance_run = session.scalar(
+        select(ScrapeRun.id)
+        .where(
+            ScrapeRun.workflow == "unpaid_prizes",
+            ScrapeRun.status == "success",
+            ScrapeRun.is_complete.is_(True),
+            ScrapeRun.source_date == source_date,
+            ScrapeRun.parsed_game_count >= min_games,
+        )
+        .order_by(ScrapeRun.source_observed_at.desc(), ScrapeRun.id.desc())
+        .limit(1)
+    )
+    if provenance_run is not None:
+        return provenance_run
+
+    if session.bind is None or session.bind.dialect.name != "sqlite":
+        return None
+
+    # Compatibility for pre-0002 SQLite fixtures only.
     rows = session.execute(
         select(
             ScrapeRun.id,
@@ -152,6 +234,7 @@ def _ensure_aware(value: datetime, *, tz: ZoneInfo) -> datetime:
 
 @dataclass(frozen=True)
 class PipelineResult:
+    scrape_run_id: int
     raw_file_path: str
     raw_file_bytes: int
     fetch_method: str | None
@@ -168,6 +251,67 @@ class PipelineResult:
     total_snapshots: int
     total_prize_tiers: int
     import_issues: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class AnalyticsStageResult:
+    source_run_id: int
+    analytics_run_id: int | None
+    status: str
+    publishable: bool
+    error_message: str | None = None
+
+
+def run_analytics_stage(
+    session_factory: sessionmaker[Session],
+    *,
+    source_run_id: int,
+    semantic_version: str = "1.0.0",
+    compute_regular_fn=compute_regular_analytics,
+    calibrate_fn=calibrate_claim_lag,
+    finalize_fn=finalize_high_tier_analytics,
+) -> AnalyticsStageResult:
+    """Compute analytics in its own transaction and persist an honest failure."""
+    with session_factory(expire_on_commit=False) as session:
+        try:
+            regular = compute_regular_fn(
+                session,
+                scrape_run_id=source_run_id,
+                semantic_version=semantic_version,
+            )
+            calibrate_fn(
+                session,
+                scrape_run_id=source_run_id,
+                semantic_version=semantic_version,
+            )
+            final = finalize_fn(
+                session,
+                scrape_run_id=source_run_id,
+                semantic_version=semantic_version,
+            )
+            session.commit()
+            return AnalyticsStageResult(
+                source_run_id=source_run_id,
+                analytics_run_id=regular.analytics_run_id,
+                status="success",
+                publishable=final.publishable,
+            )
+        except Exception as exc:  # noqa: BLE001
+            session.rollback()
+            failure = acquire_analytics_run(
+                session,
+                as_of_scrape_run_id=source_run_id,
+                semantic_version=semantic_version,
+            ).run
+            mark_analytics_run_failed(session, failure, error_message=str(exc))
+            session.commit()
+            return AnalyticsStageResult(
+                source_run_id=source_run_id,
+                analytics_run_id=failure.id,
+                status="failed",
+                publishable=False,
+                error_message=str(exc),
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -196,73 +340,179 @@ def _find_prior_import(session: Session, sha256: str) -> int | None:
     )
 
 
-def run_from_file(
-    session: Session,
-    raw_path: Path,
-    *,
-    min_games: int = 20,
-    fetch_method: str | None = None,
-    force: bool = False,
-) -> PipelineResult:
-    """Validate, parse, import, and compute metrics from a saved raw HTML file.
-
-    Raises ``ValidationError`` for bad content (Cloudflare, wrong page, too few
-    games). Raises ``DuplicateImportError`` when the same file content has already
-    been imported, unless ``force=True``. All DB writes are staged but not
-    committed — the caller commits or rolls back.
-    """
-    content = raw_path.read_bytes()
-    validate_unpaid_prizes_html(content)
-
-    parse_result = parse_html(raw_path)
-
-    if len(parse_result.games) == 0:
-        raise ValidationError("parsed 0 games from the raw file — import aborted")
-    if len(parse_result.games) < min_games:
-        raise ValidationError(
-            f"parsed only {len(parse_result.games)} games "
-            f"(minimum expected: {min_games}) — import aborted"
+def _prior_complete_counts(
+    session: Session, *, observed_before: datetime
+) -> tuple[int | None, int | None]:
+    row = session.execute(
+        select(ScrapeRun.parsed_game_count, ScrapeRun.parsed_prize_tier_count)
+        .where(
+            ScrapeRun.workflow == "unpaid_prizes",
+            ScrapeRun.status == "success",
+            ScrapeRun.is_complete.is_(True),
+            ScrapeRun.source_observed_at < observed_before,
         )
+        .order_by(ScrapeRun.source_observed_at.desc(), ScrapeRun.id.desc())
+        .limit(1)
+    ).one_or_none()
+    return (None, None) if row is None else (row[0], row[1])
 
-    now = datetime.now(UTC)
-    content_captured_at = _parse_file_capture_time(raw_path)
-    sha256 = hashlib.sha256(content).hexdigest()
 
-    if not force:
-        prior_run_id = _find_prior_import(session, sha256)
-        if prior_run_id is not None:
-            raise DuplicateImportError(
-                f"content (sha256={sha256[:16]}...) was already imported "
-                f"as scrape_run_id={prior_run_id}; use --force to override"
-            )
-
-    scrape_run = ScrapeRun(
+def _new_source_run(
+    *,
+    raw_path: Path,
+    now: datetime,
+    captured_at: datetime,
+    sha256: str,
+    status: str,
+    parsed_game_count: int,
+    parsed_tier_count: int,
+    manual_approval_reason: str | None,
+) -> ScrapeRun:
+    return ScrapeRun(
         started_at=now,
         finished_at=now,
-        status="success",
+        status=status,
         source_url=UNPAID_PRIZES_URL,
         raw_file_path=str(raw_path),
+        parser_version=PARSER_VERSION,
+        workflow="unpaid_prizes",
+        source_observed_at=captured_at,
+        source_date=chicago_source_date(captured_at),
+        source_sha256=sha256,
+        is_complete=False,
+        parsed_game_count=parsed_game_count,
+        parsed_prize_tier_count=parsed_tier_count,
+        pipeline_version=PIPELINE_VERSION,
+        manually_approved_at=now if manual_approval_reason else None,
+        manual_approval_reason=manual_approval_reason,
     )
-    session.add(scrape_run)
-    session.flush()
 
+
+def _add_raw_source(
+    session: Session,
+    *,
+    scrape_run: ScrapeRun,
+    raw_path: Path,
+    sha256: str,
+    captured_at: datetime,
+) -> None:
     session.add(
         RawSourceSnapshot(
-            scrape_run_id=scrape_run.id,
+            scrape_run=scrape_run,
             source_url=UNPAID_PRIZES_URL,
             content_type="text/html; charset=utf-8",
             file_path=str(raw_path),
             sha256=sha256,
+            captured_at=captured_at,
+        )
+    )
+
+
+def run_from_file(
+    session: Session,
+    raw_path: Path,
+    *,
+    min_games: int = 40,
+    fetch_method: str | None = None,
+    force: bool = False,
+    manual_approval_reason: str | None = None,
+) -> PipelineResult:
+    """Validate, parse, import, and compute metrics from a saved raw HTML file.
+
+    Raises ``ValidationError`` for bad content (Cloudflare, wrong page, too few
+    games). Raises ``DuplicateImportError`` when the same immutable source content
+    has already been imported, including with ``force=True``. All DB writes are
+    staged but not committed — the caller commits or rolls back.
+    """
+    content = raw_path.read_bytes()
+    validate_unpaid_prizes_html(content)
+
+    now = datetime.now(UTC)
+    content_captured_at = _parse_file_capture_time(raw_path)
+    sha256 = hashlib.sha256(content).hexdigest()
+    parse_result = parse_html(raw_path)
+    quality = assess_parse_result(parse_result)
+
+    prior_run_id = _find_prior_import(session, sha256)
+    if prior_run_id is not None:
+        force_note = " --force cannot duplicate an immutable complete source" if force else ""
+        raise DuplicateImportError(
+            f"content (sha256={sha256[:16]}...) was already imported "
+            f"as scrape_run_id={prior_run_id}; import is idempotently skipped.{force_note}"
+        )
+
+    prior_game_count, prior_tier_count = _prior_complete_counts(
+        session, observed_before=content_captured_at
+    )
+    decision = evaluate_source_completeness(
+        quality,
+        prior_game_count=prior_game_count,
+        prior_prize_tier_count=prior_tier_count,
+        minimum_games=min_games,
+        manually_approved=manual_approval_reason is not None,
+    )
+    if not decision.is_complete:
+        quarantined = _new_source_run(
+            raw_path=raw_path,
+            now=now,
+            captured_at=content_captured_at,
+            sha256=sha256,
+            status="quarantined",
+            parsed_game_count=quality.parsed_game_count,
+            parsed_tier_count=quality.parsed_prize_tier_count,
+            manual_approval_reason=manual_approval_reason,
+        )
+        quarantined.error_message = ",".join(decision.reasons)
+        session.add(quarantined)
+        _add_raw_source(
+            session,
+            scrape_run=quarantined,
+            raw_path=raw_path,
+            sha256=sha256,
             captured_at=content_captured_at,
         )
+        session.flush()
+        raise SourceQuarantinedError(quarantined.id, decision.reasons)
+
+    scrape_run = _new_source_run(
+        raw_path=raw_path,
+        now=now,
+        captured_at=content_captured_at,
+        sha256=sha256,
+        status="success",
+        parsed_game_count=quality.parsed_game_count,
+        parsed_tier_count=quality.parsed_prize_tier_count,
+        manual_approval_reason=manual_approval_reason,
+    )
+    session.add(scrape_run)
+    _add_raw_source(
+        session,
+        scrape_run=scrape_run,
+        raw_path=raw_path,
+        sha256=sha256,
+        captured_at=content_captured_at,
     )
     session.flush()
 
     import_result = import_unpaid_prizes_parse_result(
-        session, parse_result, scrape_run=scrape_run
+        session,
+        parse_result,
+        scrape_run=scrape_run,
+        captured_at=content_captured_at,
     )
 
-    metrics_result = compute_snapshot_metrics(session)
+    if import_result.snapshots_inserted != quality.parsed_game_count:
+        raise ValidationError(
+            "imported game count does not reconcile with validated parsed game count"
+        )
+    if import_result.prize_tiers_inserted != quality.parsed_prize_tier_count:
+        raise ValidationError(
+            "imported tier count does not reconcile with validated parsed tier count"
+        )
+    scrape_run.is_complete = True
+    synchronize_active_games(session, scrape_run.id)
+
+    metrics_result = compute_snapshot_metrics(session, include_legacy=False)
 
     session.flush()
     total_games = session.scalar(select(func.count()).select_from(Game))
@@ -275,6 +525,7 @@ def run_from_file(
     ]
 
     return PipelineResult(
+        scrape_run_id=scrape_run.id,
         raw_file_path=str(raw_path),
         raw_file_bytes=len(content),
         fetch_method=fetch_method,

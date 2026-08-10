@@ -17,9 +17,9 @@ from illinois_lottery_tracker.metrics_report import (
     build_metrics_report,
     caution_rows,
     depleted_top_prize_rows,
+    format_money,
     format_odds,
     format_overall_odds,
-    format_money,
     format_percent,
     missing_odds_rows,
     render_text_report,
@@ -211,6 +211,20 @@ def test_help_exits_without_requiring_database():
     assert result.returncode == 0
     assert "usage:" in result.stdout
     assert "DATABASE_URL is not set" not in result.stderr
+
+
+def test_legacy_report_is_disabled_with_explicit_replacement():
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "report_metrics.py")],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "DEPRECATED" in result.stderr
+    assert "report_analytics.py --nightly-status" in result.stderr
 
 
 def test_report_generation_is_read_only(session: Session):

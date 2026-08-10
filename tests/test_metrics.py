@@ -996,3 +996,26 @@ def test_compute_metrics_clearing_stale_odds_metrics_is_idempotent(
         snap.launch_ev,
         snap.top_prize_depleted,
     ) == state_after_first_clear
+
+
+def test_observed_only_mode_never_writes_or_clears_legacy_columns(session: Session):
+    game = _game(session, odds=Decimal("4.0"), ticket_price=Decimal("5.00"))
+    snap = _snapshot(
+        session,
+        game,
+        total_orig=100,
+        total_remaining=80,
+        total_orig_prize_value=Decimal("5000"),
+        top_prizes_original=1,
+        top_prizes_remaining=0,
+        prize_tiers=[(50, 100, 80)],
+    )
+    snap.estimated_ev = Decimal("123.456")
+    game.est_total_tickets = 999
+
+    result = compute_snapshot_metrics(session, include_legacy=False)
+
+    assert snap.estimated_ev == Decimal("123.456")
+    assert game.est_total_tickets == 999
+    assert snap.remaining_winning_tickets_pct == Decimal("0.8")
+    assert result.snapshots_computed == 0

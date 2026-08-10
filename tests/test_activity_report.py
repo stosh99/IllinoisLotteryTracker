@@ -231,6 +231,7 @@ def _snapshot(
                 prize_amount=prize,
                 original_count=100,
                 remaining_count=remaining,
+                claimed_count=100 - remaining,
             )
         )
     session.flush()

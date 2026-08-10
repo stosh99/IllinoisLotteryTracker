@@ -2,11 +2,14 @@
 
 A data-first pipeline that tracks Illinois Lottery instant ticket prize
 availability over time. The pipeline collects official source pages nightly,
-preserves raw snapshots on disk, and stores structured game/prize data in
-PostgreSQL for later trend and expected-value analysis.
+preserves raw snapshots on disk, parses game/prize data, and stores historical
+snapshots in PostgreSQL. It computes versioned non-circular tier analytics,
+claim-lag calibration, strategy datasets, and auditable backtests.
 
-UI, HTML parsing, and EV calculations are intentionally **not built yet**.
-This repository is the stable foundation for nightly data collection.
+The canonical implementation design for the database-centric analytics phase
+is [docs/database_blueprint/README.md](docs/database_blueprint/README.md).
+No public UI, API, authentication, or personal play tracking is in the current
+scope.
 
 See [docs/project-brief.md](docs/project-brief.md) for the longer plan.
 
@@ -48,6 +51,7 @@ playwright install chromium
 
 ```bash
 cp .env.example .env
+chmod 600 .env
 ```
 
 Then edit `.env` and set `DATABASE_URL` to point at your local PostgreSQL
@@ -61,24 +65,79 @@ database. `.env` is git-ignored — never commit real credentials.
 python scripts/check_db.py
 ```
 
-### Create tables (early development only)
+### Create or upgrade the schema
 
 ```bash
-python -c "from illinois_lottery_tracker.db import create_all_tables; create_all_tables()"
+alembic upgrade head
 ```
 
-We will switch to a proper migration tool (e.g. Alembic) before any data we
-care about lives in the database.
-
-### Collect a raw snapshot
+For a new empty database, this creates the complete schema. An existing
+pre-Alembic database must first be backed up and verified, then stamped at the
+baseline only after its schema has been compared with revision `0001`:
 
 ```bash
-python scripts/collect_raw_snapshot.py
+python scripts/backup_database.py \
+  --target-dir /explicit/backup/directory --name pre_alembic
+python scripts/verify_database_restore.py \
+  --dump /explicit/backup/directory/pre_alembic.dump \
+  --target-database illinois_lottery_restore_verify_pre_alembic \
+  --upgrade-legacy-baseline
+alembic stamp 0001_existing_schema_baseline
+alembic upgrade head
 ```
 
-This fetches the Illinois Lottery unpaid-prizes page, writes the raw HTML to
-`data/raw/YYYY-MM-DD/`, and records a `ScrapeRun` + `RawSourceSnapshot` row.
-Raw files are never overwritten.
+Never stamp a nonempty database merely to make Alembic accept it. Restore the
+backup into a disposable database and run the schema and audit checks first.
+
+### Run the nightly pipeline manually
+
+```bash
+python scripts/run_nightly_unpaid_prizes_pipeline.py \
+  --skip-if-today-imported --refresh-catalog \
+  --backup-dir /explicit/backup/directory \
+  --raw-growth-limit-bytes 1073741824
+```
+
+This acquires a PostgreSQL advisory lock, fetches and validates the Illinois
+Lottery unpaid-prizes page without an open transaction, preserves the raw
+capture, commits normalized source snapshots, and computes the matching
+versioned analytics in a separate transaction. The optional catalog refresh is
+also collected without an open transaction and committed independently. A
+failed analytics stage never rolls back source history or silently exposes an
+older analytics cutoff.
+
+### Compute, backfill, validate, and report analytics
+
+```bash
+python scripts/compute_analytics.py
+python scripts/backfill_analytics.py --resume
+python scripts/backtest_analytics.py --report-json
+python scripts/report_analytics.py --nightly-status
+```
+
+Analytics are never made current merely because a version number is newest.
+Only an explicitly approved model with a persisted passing promotion backtest
+can publish. Inspect or change model state with:
+
+```bash
+python scripts/manage_model_approval.py
+python scripts/manage_model_approval.py --approve \
+  --backtest-run-id ID --reason "reviewed passing promotion report"
+```
+
+Approval without a passing backtest is rejected by both the application and
+PostgreSQL. A failed promotion backtest automatically rejects the model.
+
+If the live catalog is temporarily blocked but a complete raw crawl was
+already preserved, replay the ordered files without network access:
+
+```bash
+python scripts/import_catalog_files.py page-001.html page-002.html page-003.html
+```
+
+The historical `compute_metrics.py --legacy` and `report_metrics.py` surface
+uses the superseded all-reported-winner denominator. Nightly does not write
+those retained transition columns, and the legacy report command is disabled.
 
 ### Run tests
 
@@ -97,18 +156,19 @@ ruff check .
 ```
 src/illinois_lottery_tracker/   # importable package
 scripts/                        # CLI entry points
-tests/                          # pytest suite (no network, no live DB)
+tests/                          # unit plus disposable-PostgreSQL integration tests
 docs/                           # design notes
 data/raw/YYYY-MM-DD/            # preserved raw snapshots (git-ignored)
 logs/                           # runtime logs (git-ignored)
 ```
 
-## What is intentionally NOT built yet
+## What is intentionally NOT built
 
-- HTML parsing of game/prize tables
-- Expected-value math
-- Any UI (admin or public)
-- Multi-page scraping
-- Production scheduling
+- Public API or UI
+- Authentication and user accounts
+- Personal play/outcome tracking
 
-The current scope is: collect the page, preserve it, and record metadata.
+The current implementation remains database-first. Rankings come only from an
+exact current source/model cutoff in `current_strategy_rankings_v`. Retained
+legacy `game_snapshots.estimated_*` columns are audit-only and must not be used
+as publication inputs.

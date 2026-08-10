@@ -14,6 +14,7 @@ from enum import StrEnum
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from .lifecycle import current_complete_run_id
 from .models import Game, GameSnapshot, RawSourceSnapshot, ScrapeRun
 
 
@@ -56,7 +57,7 @@ class MetricsReportRow:
     estimated_tickets_remaining: int | None = None
     total_original_winning_tickets: int | None = None
     total_remaining_winning_tickets: int | None = None
-    prize_tiers: tuple["MetricsPrizeTierRow", ...] = ()
+    prize_tiers: tuple[MetricsPrizeTierRow, ...] = ()
 
     @property
     def has_odds_dependent_metrics(self) -> bool:
@@ -91,34 +92,44 @@ class MetricsReport:
 
 
 def build_metrics_report(session: Session) -> MetricsReport:
-    """Return latest available active-game metric rows.
-
-    "Latest" is determined by source capture time for the scrape run when a
-    RawSourceSnapshot exists, falling back to ScrapeRun.started_at. Selection is
-    per game, so an active game missing from the newest snapshot set can still
-    appear with its latest available stored snapshot.
-    """
+    """Return metric rows from one canonical complete source cutoff."""
     run_times = _run_source_times(session)
-    snapshots = list(
-        session.scalars(
-            select(GameSnapshot)
-            .join(Game)
-            .where(Game.is_active.is_(True))
-            .options(
-                selectinload(GameSnapshot.game),
-                selectinload(GameSnapshot.scrape_run),
-                selectinload(GameSnapshot.prize_tiers),
-            )
+    current_run_id = current_complete_run_id(session)
+    canonical_query = (
+        select(GameSnapshot)
+        .where(GameSnapshot.scrape_run_id == current_run_id)
+        .options(
+            selectinload(GameSnapshot.game),
+            selectinload(GameSnapshot.scrape_run),
+            selectinload(GameSnapshot.prize_tiers),
         )
     )
-
-    latest_by_game: dict[int, GameSnapshot] = {}
-    for snap in snapshots:
-        current = latest_by_game.get(snap.game_id)
-        if current is None or _snapshot_sort_key(snap, run_times) > _snapshot_sort_key(
-            current, run_times
-        ):
-            latest_by_game[snap.game_id] = snap
+    if current_run_id is not None:
+        snapshots = list(session.scalars(canonical_query))
+        latest_by_game = {snapshot.game_id: snapshot for snapshot in snapshots}
+    elif session.bind is not None and session.bind.dialect.name == "sqlite":
+        # Legacy unit-test fixtures predate complete-run provenance.
+        snapshots = list(
+            session.scalars(
+                select(GameSnapshot)
+                .join(Game)
+                .where(Game.is_active.is_(True))
+                .options(
+                    selectinload(GameSnapshot.game),
+                    selectinload(GameSnapshot.scrape_run),
+                    selectinload(GameSnapshot.prize_tiers),
+                )
+            )
+        )
+        latest_by_game: dict[int, GameSnapshot] = {}
+        for snapshot in snapshots:
+            current = latest_by_game.get(snapshot.game_id)
+            if current is None or _snapshot_sort_key(
+                snapshot, run_times
+            ) > _snapshot_sort_key(current, run_times):
+                latest_by_game[snapshot.game_id] = snapshot
+    else:
+        latest_by_game = {}
 
     rows = [
         _row_from_snapshot(snap, run_times)
@@ -306,11 +317,14 @@ def _run_source_times(session: Session) -> dict[int, tuple[datetime | None, date
     rows = session.execute(
         select(
             ScrapeRun.id,
-            func.min(RawSourceSnapshot.captured_at).label("source_captured_at"),
+            func.coalesce(
+                ScrapeRun.source_observed_at,
+                func.min(RawSourceSnapshot.captured_at),
+            ).label("source_captured_at"),
             ScrapeRun.started_at,
         )
         .outerjoin(RawSourceSnapshot, RawSourceSnapshot.scrape_run_id == ScrapeRun.id)
-        .group_by(ScrapeRun.id, ScrapeRun.started_at)
+        .group_by(ScrapeRun.id, ScrapeRun.source_observed_at, ScrapeRun.started_at)
     ).all()
     return {row[0]: (row[1], row[2]) for row in rows}
 

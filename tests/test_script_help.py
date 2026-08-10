@@ -32,3 +32,22 @@ def test_discover_source_help_exits_without_starting_discovery():
     assert "usage:" in result.stdout
     assert "discovery run failed" not in result.stderr
     assert "BrowserType.launch" not in result.stderr
+
+
+def test_database_safety_scripts_have_help():
+    for script in (
+        "audit_raw_archive.py",
+        "audit_source_data.py",
+        "backup_database.py",
+        "backfill_analytics.py",
+        "backtest_analytics.py",
+        "calibrate_claim_lag.py",
+        "compute_analytics.py",
+        "import_catalog_files.py",
+        "maintain_raw_archive.py",
+        "report_analytics.py",
+        "verify_database_restore.py",
+    ):
+        result = run_help(script)
+        assert result.returncode == 0
+        assert "usage:" in result.stdout

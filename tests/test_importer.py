@@ -265,6 +265,30 @@ def test_detail_metadata_repeat_import_is_idempotent(session: Session):
     assert session.scalar(select(func.count()).select_from(Game)) == 1
 
 
+def test_detail_metadata_identity_conflict_is_skipped_without_mutation(
+    session: Session,
+):
+    run = _scrape_run(session)
+    import_unpaid_prizes_parse_result(
+        session, ParseResult(games=[_game()]), scrape_run=run
+    )
+    conflicting = _detail(name="Different Game", ticket_price=5)
+
+    result = import_instant_ticket_detail_metadata(session, [conflicting])
+    session.flush()
+
+    game = session.scalar(select(Game).where(Game.game_number == "7647"))
+    assert game is not None
+    assert result.details_skipped == 1
+    assert result.games_updated == 0
+    assert "identity fields conflict" in result.issues[0].message
+    assert game.name == "EMERALDS"
+    assert game.ticket_price == Decimal("1.00")
+    assert game.source_url is None
+    assert game.launch_date is None
+    assert game.overall_odds_one_in is None
+
+
 def test_detail_metadata_missing_game_number_is_skipped_and_reported(
     session: Session,
 ):

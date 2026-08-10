@@ -9,6 +9,7 @@ fetch via Playwright.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -19,7 +20,7 @@ from typing import Literal
 import requests
 
 from .config import Settings, get_settings
-from .paths import dated_raw_dir
+from .paths import dated_raw_dir, raw_data_dir
 
 UNPAID_PRIZES_URL = (
     "https://www.illinoislottery.com/about-the-games/unpaid-instant-games-prizes"
@@ -146,6 +147,57 @@ def _filename(captured_at: datetime, prefix: str = DEFAULT_FILENAME_PREFIX) -> s
     return f"{safe_prefix}-{captured_at.strftime(FILENAME_TIMESTAMP_FORMAT)}.html"
 
 
+def _persist_content_addressed(
+    content: bytes,
+    *,
+    captured_at: datetime,
+    filename_prefix: str,
+    settings: Settings,
+) -> tuple[Path, str]:
+    """Persist one immutable blob and a per-capture hard link.
+
+    Existing capture files are never replaced.  Filesystems without hard-link
+    support receive a normal copy while retaining the same content hash.
+    """
+    sha256 = hashlib.sha256(content).hexdigest()
+    blob_dir = raw_data_dir(settings) / ".content" / sha256[:2]
+    blob_dir.mkdir(parents=True, exist_ok=True)
+    blob_path = blob_dir / f"{sha256}.html"
+    if not blob_path.exists():
+        temporary = blob_dir / f".{sha256}.{os.getpid()}.tmp"
+        try:
+            temporary.write_bytes(content)
+            try:
+                temporary.replace(blob_path)
+            except FileExistsError:
+                pass
+        finally:
+            temporary.unlink(missing_ok=True)
+    elif blob_path.read_bytes() != content:
+        raise RuntimeError(f"content hash collision at {blob_path}")
+
+    target_dir = dated_raw_dir(captured_at, settings=settings, create=True)
+    requested = target_dir / _filename(captured_at, filename_prefix)
+    target_path = requested
+    sequence = 1
+    while target_path.exists():
+        if target_path.read_bytes() == content:
+            sequence += 1
+            target_path = requested.with_name(
+                f"{requested.stem}-{sequence:02d}{requested.suffix}"
+            )
+            continue
+        sequence += 1
+        target_path = requested.with_name(
+            f"{requested.stem}-{sequence:02d}{requested.suffix}"
+        )
+    try:
+        os.link(blob_path, target_path)
+    except OSError:
+        target_path.write_bytes(content)
+    return target_path, sha256
+
+
 def collect_raw_snapshot(
     *,
     url: str = UNPAID_PRIZES_URL,
@@ -178,10 +230,12 @@ def collect_raw_snapshot(
             wait_selector=wait_selector,
         )
 
-    sha256 = hashlib.sha256(outcome.content).hexdigest()
-    target_dir: Path = dated_raw_dir(captured_at, settings=settings, create=True)
-    target_path = target_dir / _filename(captured_at, filename_prefix)
-    target_path.write_bytes(outcome.content)
+    target_path, sha256 = _persist_content_addressed(
+        outcome.content,
+        captured_at=captured_at,
+        filename_prefix=filename_prefix,
+        settings=settings,
+    )
 
     return RawCollectionResult(
         source_url=url,
@@ -267,10 +321,12 @@ def _fetch_pages_batch_with_playwright(
                     continue
 
                 content = html.encode("utf-8")
-                sha256 = hashlib.sha256(content).hexdigest()
-                target_dir = dated_raw_dir(captured_at, settings=settings, create=True)
-                target_path = target_dir / _filename(captured_at, prefix)
-                target_path.write_bytes(content)
+                target_path, sha256 = _persist_content_addressed(
+                    content,
+                    captured_at=captured_at,
+                    filename_prefix=prefix,
+                    settings=settings,
+                )
                 results.append(BatchPageResult(
                     url=url, file_path=str(target_path), sha256=sha256,
                     captured_at=captured_at, content_type="text/html; charset=utf-8",

@@ -1,4 +1,4 @@
-"""Read-only report for stored normalized snapshot metrics.
+"""Deprecated entry point for the superseded legacy snapshot-metrics report.
 
 Does not fetch source data and does not modify database rows.
 """
@@ -8,22 +8,15 @@ from __future__ import annotations
 import argparse
 import sys
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
-
-from illinois_lottery_tracker.db import get_engine
 from illinois_lottery_tracker.metrics_report import (
     MetricsReportSection,
-    build_metrics_report,
-    render_text_report,
 )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Read-only report of stored Phase 1 normalized snapshot metrics "
-            "based on public unclaimed-prize data."
+            "Deprecated legacy snapshot-metrics entry point; use report_analytics.py."
         )
     )
     parser.add_argument(
@@ -61,24 +54,13 @@ def main(argv: list[str] | None = None) -> int:
         print("ERROR: --limit must be at least 1.", file=sys.stderr)
         return 2
 
-    if args.db_url:
-        engine = create_engine(args.db_url, future=True, pool_pre_ping=True)
-    else:
-        engine = get_engine()
-
-    with Session(engine, expire_on_commit=False, future=True) as session:
-        report = build_metrics_report(session)
-
     print(
-        render_text_report(
-            report,
-            limit=args.limit,
-            section=MetricsReportSection(args.section),
-            game_number=args.game_number,
-        ),
-        end="",
+        "DEPRECATED: report_metrics.py reads superseded all-winner-denominator "
+        "columns and is disabled. Use report_analytics.py --nightly-status or "
+        "query current_strategy_rankings_v with explicit strategy_key names.",
+        file=sys.stderr,
     )
-    return 0
+    return 2
 
 
 if __name__ == "__main__":

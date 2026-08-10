@@ -190,6 +190,25 @@ def test_collect_filename_is_dated_and_unique(tmp_path, monkeypatch):
     assert file_path.name.endswith(".html")
 
 
+def test_identical_captures_share_content_inode_without_overwriting(tmp_path, monkeypatch):
+    body = b"<html>unchanged</html>"
+    fake = _FakeSession(_FakeResponse(200, body))
+    monkeypatch.setattr(
+        raw_collector,
+        "_fetch_with_playwright",
+        lambda *a, **kw: pytest.fail("should not be called"),
+    )
+
+    first = collect_raw_snapshot(settings=_settings(tmp_path), session=fake)
+    second = collect_raw_snapshot(settings=_settings(tmp_path), session=fake)
+
+    first_path = Path(first.file_path)
+    second_path = Path(second.file_path)
+    assert first_path != second_path
+    assert first_path.stat().st_ino == second_path.stat().st_ino
+    assert first.sha256 == second.sha256 == hashlib.sha256(body).hexdigest()
+
+
 # ---------------------------------------------------------------------------
 # collect_pages_batch
 # ---------------------------------------------------------------------------

@@ -27,8 +27,9 @@ These caveats should be visible throughout the site, not hidden only in a footer
 - Lottery games remain negative expected value overall.
 - The site is for analysis and transparency, not gambling advice or outcome prediction.
 
-See `docs/mail_in_prize_lag_model.md` for the planned report-only approach to
-estimating claim-reporting lag for non-top prizes of `$600` or more.
+See `docs/database_blueprint/02_analytics_specification.md` for the canonical
+database approach to estimating relative claim-reporting lag for prizes
+strictly greater than `$600`.
 
 Suggested short caveat language:
 
@@ -76,7 +77,7 @@ The site should offer several EV views:
 - EV excluding prizes above $100,000
 - EV excluding prizes above $600
 
-The `$600+` threshold is especially useful because larger prizes may require claim processing and may not be reflected immediately in public unclaimed-prize data.
+The `>$600` threshold is especially useful because larger prizes may require claim processing and may not be reflected immediately in public unclaimed-prize data.
 
 This supports a practical question:
 

@@ -20,42 +20,40 @@ To schedule nightly (after validating this runner manually):
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy.orm import Session
+from sqlalchemy import Engine
+from sqlalchemy.orm import Session, sessionmaker
 
+from illinois_lottery_tracker.analytics.status import build_nightly_status
+from illinois_lottery_tracker.catalog import collect_catalog_pages, persist_catalog_run
 from illinois_lottery_tracker.db import get_engine
-from illinois_lottery_tracker.metadata_backfill import (
-    backfill_missing_game_metadata,
-    render_metadata_backfill_result,
-    stderr_progress,
-)
-from illinois_lottery_tracker.metrics import compute_snapshot_metrics
+from illinois_lottery_tracker.lifecycle import current_complete_run_id
 from illinois_lottery_tracker.pipeline import (
     LOCAL_TIME_ZONE,
     DuplicateImportError,
+    SourceQuarantinedError,
     ValidationError,
     find_successful_snapshot_run_for_source_date,
+    orchestration_lock,
+    run_analytics_stage,
     run_from_file,
 )
 from illinois_lottery_tracker.raw_collector import UNPAID_PRIZES_URL, collect_raw_snapshot
 
 
-def _run_metadata_backfill(session: Session, *, max_detail_pages: int | None):
-    metadata_result = backfill_missing_game_metadata(
-        session,
-        max_detail_pages=max_detail_pages,
-        progress=stderr_progress,
-    )
-    metadata_metrics_result = (
-        compute_snapshot_metrics(session) if metadata_result.changed_games else None
-    )
-    return metadata_result, metadata_metrics_result
-
-
-def main(argv: list[str] | None = None) -> int:
+def _main_unlocked(argv: list[str], engine: Engine | None) -> int:
+    total_started = time.perf_counter()
+    stage_durations = {
+        "source_collection": 0.0,
+        "source_import": 0.0,
+        "catalog_collection_import": 0.0,
+        "analytics": 0.0,
+    }
     parser = argparse.ArgumentParser(
         description="Run the nightly unpaid-prizes data pipeline."
     )
@@ -72,14 +70,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--min-games",
         type=int,
-        default=20,
+        default=40,
         metavar="N",
-        help="Minimum parsed game count before aborting (default: 20).",
+        help="Minimum parsed game count before aborting (default: 40).",
     )
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Import even if the same file content was already imported.",
+        help=(
+            "Force collection/processing checks where supported; immutable duplicate "
+            "source content is still skipped."
+        ),
     )
     parser.add_argument(
         "--skip-if-today-imported",
@@ -90,11 +91,33 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--manual-approval-reason",
+        help=(
+            "Auditable operator reason to override only the 80%%-of-prior count gate; "
+            "absolute and structural checks still apply."
+        ),
+    )
+    parser.add_argument(
+        "--refresh-catalog",
+        action="store_true",
+        help="collect catalog pages outside a transaction, then commit them separately",
+    )
+    parser.add_argument(
+        "--backup-dir",
+        type=Path,
+        help="directory containing backup and restore-verification manifests",
+    )
+    parser.add_argument(
+        "--raw-growth-limit-bytes",
+        type=int,
+        help="alert when unique raw files captured in 30 days exceed this byte count",
+    )
+    parser.add_argument(
         "--backfill-missing-metadata",
         action="store_true",
         help=(
-            "After importing the unpaid-prizes snapshot, fetch current instant-ticket "
-            "detail pages and fill missing game metadata such as launch_date and odds."
+            "Deprecated nightly flag; metadata network work must run as a separate "
+            "command so it never spans the source transaction."
         ),
     )
     parser.add_argument(
@@ -103,7 +126,8 @@ def main(argv: list[str] | None = None) -> int:
         metavar="N",
         help="Maximum instant-ticket detail pages to fetch during metadata backfill.",
     )
-    args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    args = parser.parse_args(argv)
+    assert engine is not None
 
     fetch_method: str | None = None
 
@@ -113,9 +137,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ERROR: file not found: {raw_path}", file=sys.stderr)
             return 1
     else:
-        if args.skip_if_today_imported:
+        if args.skip_if_today_imported and not args.force:
             today = datetime.now(LOCAL_TIME_ZONE).date()
-            engine = get_engine()
             with Session(engine, expire_on_commit=False, future=True) as session:
                 existing_run_id = find_successful_snapshot_run_for_source_date(
                     session,
@@ -127,49 +150,24 @@ def main(argv: list[str] | None = None) -> int:
                     f"SKIP: successful imported snapshot already exists for "
                     f"{today.isoformat()} as scrape_run_id={existing_run_id}."
                 )
-                if args.backfill_missing_metadata:
-                    with Session(engine, expire_on_commit=False, future=True) as session:
-                        try:
-                            metadata_result, metadata_metrics_result = _run_metadata_backfill(
-                                session,
-                                max_detail_pages=args.metadata_max_detail_pages,
-                            )
-                            if args.dry_run:
-                                session.rollback()
-                            else:
-                                session.commit()
-                        except Exception as exc:  # noqa: BLE001
-                            session.rollback()
-                            print(
-                                f"WARNING: metadata backfill failed: {exc}",
-                                file=sys.stderr,
-                            )
-                        else:
-                            print()
-                            print(render_metadata_backfill_result(metadata_result), end="")
-                            if metadata_metrics_result is not None:
-                                print()
-                                print("Metadata metrics recompute:")
-                                print(
-                                    f"  Games updated:                "
-                                    f"{metadata_metrics_result.games_updated}"
-                                )
-                                print(
-                                    f"  Snapshots computed:           "
-                                    f"{metadata_metrics_result.snapshots_computed}"
-                                )
-                                print(
-                                    f"  Skipped no odds:              "
-                                    f"{metadata_metrics_result.snapshots_skipped_no_odds}"
-                                )
-                return 0
+                if args.dry_run:
+                    return 0
+                return _finish_existing_source(
+                    engine,
+                    args=args,
+                    source_run_id=existing_run_id,
+                    stage_durations=stage_durations,
+                    total_started=total_started,
+                )
 
+        collection_started = time.perf_counter()
         print(f"Fetching {UNPAID_PRIZES_URL} ...", flush=True)
         try:
             collection = collect_raw_snapshot(url=UNPAID_PRIZES_URL)
         except Exception as exc:  # noqa: BLE001
             print(f"ERROR: fetch failed: {exc}", file=sys.stderr)
             return 1
+        stage_durations["source_collection"] = time.perf_counter() - collection_started
         raw_path = Path(collection.file_path)
         fetch_method = collection.fetch_method
         print(
@@ -177,10 +175,8 @@ def main(argv: list[str] | None = None) -> int:
             f"({collection.bytes_written:,} bytes, method={fetch_method})"
         )
 
-    engine = get_engine()
-    metadata_result = None
     metadata_warning: str | None = None
-    metadata_metrics_result = None
+    source_started = time.perf_counter()
     with Session(engine, expire_on_commit=False, future=True) as session:
         try:
             result = run_from_file(
@@ -189,19 +185,33 @@ def main(argv: list[str] | None = None) -> int:
                 min_games=args.min_games,
                 fetch_method=fetch_method,
                 force=args.force,
+                manual_approval_reason=args.manual_approval_reason,
             )
-            if args.backfill_missing_metadata:
-                try:
-                    with session.begin_nested():
-                        metadata_result, metadata_metrics_result = _run_metadata_backfill(
-                            session,
-                            max_detail_pages=args.metadata_max_detail_pages,
-                        )
-                except Exception as exc:  # noqa: BLE001
-                    metadata_warning = f"metadata backfill failed: {exc}"
         except DuplicateImportError as exc:
+            session.rollback()
+            session.close()
             print(f"SKIP: {exc}", file=sys.stderr)
-            return 0
+            if args.dry_run:
+                return 0
+            with Session(engine, expire_on_commit=False, future=True) as lookup:
+                existing_run_id = current_complete_run_id(lookup)
+            if existing_run_id is None:
+                print("ERROR: duplicate source found but no current complete run", file=sys.stderr)
+                return 1
+            return _finish_existing_source(
+                engine,
+                args=args,
+                source_run_id=existing_run_id,
+                stage_durations=stage_durations,
+                total_started=total_started,
+            )
+        except SourceQuarantinedError as exc:
+            if args.dry_run:
+                session.rollback()
+            else:
+                session.commit()
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
         except ValidationError as exc:
             print(f"ERROR: validation failed: {exc}", file=sys.stderr)
             return 1
@@ -216,6 +226,26 @@ def main(argv: list[str] | None = None) -> int:
         else:
             session.commit()
             mode = "committed"
+    stage_durations["source_import"] = time.perf_counter() - source_started
+
+    catalog_warning = _refresh_catalog_stage(
+        engine, args=args, stage_durations=stage_durations
+    )
+    if catalog_warning:
+        print(f"WARNING: {catalog_warning}", file=sys.stderr)
+    analytics = None
+    if not args.dry_run:
+        analytics_started = time.perf_counter()
+        analytics = run_analytics_stage(
+            sessionmaker(bind=engine, expire_on_commit=False, future=True),
+            source_run_id=result.scrape_run_id,
+        )
+        stage_durations["analytics"] = time.perf_counter() - analytics_started
+    if args.backfill_missing_metadata:
+        metadata_warning = (
+            "nightly metadata network collection is disabled so no database "
+            "transaction spans network I/O; run backfill_missing_metadata.py separately"
+        )
 
     print()
     print(f"Mode:                            {mode}")
@@ -240,30 +270,112 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Total game_snapshots:            {result.total_snapshots}")
     print(f"Total prize_tier_snapshots:      {result.total_prize_tiers}")
 
-    if metadata_result is not None:
-        print()
-        print(render_metadata_backfill_result(metadata_result), end="")
-    if metadata_metrics_result is not None:
-        print()
-        print("Metadata metrics recompute:")
-        print(f"  Games updated:                {metadata_metrics_result.games_updated}")
-        print(
-            f"  Snapshots computed:           "
-            f"{metadata_metrics_result.snapshots_computed}"
-        )
-        print(
-            f"  Skipped no odds:              "
-            f"{metadata_metrics_result.snapshots_skipped_no_odds}"
-        )
     if metadata_warning is not None:
         print(f"\nWARNING: {metadata_warning}", file=sys.stderr)
+    if analytics is not None:
+        print()
+        print(
+            f"Analytics: status={analytics.status} run_id={analytics.analytics_run_id} "
+            f"publishable={str(analytics.publishable).lower()}"
+        )
+        if analytics.error_message:
+            print(f"Analytics error: {analytics.error_message}", file=sys.stderr)
 
     if result.import_issues:
         print(f"\nImport issues ({len(result.import_issues)}):")
         for issue in result.import_issues[:10]:
             print(f"  {issue}")
 
-    return 0
+    _print_stage_durations(stage_durations, total_started)
+    _print_nightly_status(engine, args, stage_durations)
+
+    return 1 if analytics is not None and analytics.status == "failed" else 0
+
+
+def _print_stage_durations(stage_durations: dict[str, float], total_started: float) -> None:
+    stages = " ".join(
+        f"{name}={duration:.3f}" for name, duration in stage_durations.items()
+    )
+    print(f"Stage durations seconds: {stages} total={time.perf_counter() - total_started:.3f}")
+
+
+def _print_nightly_status(engine: Engine, args, stage_durations: dict[str, float]) -> None:
+    try:
+        with Session(engine, expire_on_commit=False, future=True) as session:
+            document = build_nightly_status(
+                session,
+                backup_dir=args.backup_dir,
+                raw_growth_limit_bytes=args.raw_growth_limit_bytes,
+                stage_durations_seconds=stage_durations,
+            )
+        print(f"Nightly status: {json.dumps(document, sort_keys=True)}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"WARNING: nightly status reporting failed: {exc}", file=sys.stderr)
+
+
+def _finish_existing_source(
+    engine: Engine,
+    *,
+    args,
+    source_run_id: int,
+    stage_durations: dict[str, float],
+    total_started: float,
+) -> int:
+    catalog_warning = _refresh_catalog_stage(
+        engine, args=args, stage_durations=stage_durations
+    )
+    if catalog_warning:
+        print(f"WARNING: {catalog_warning}", file=sys.stderr)
+    analytics_started = time.perf_counter()
+    analytics = run_analytics_stage(
+        sessionmaker(bind=engine, expire_on_commit=False, future=True),
+        source_run_id=source_run_id,
+    )
+    stage_durations["analytics"] = time.perf_counter() - analytics_started
+    print(
+        f"Analytics: status={analytics.status} run_id={analytics.analytics_run_id} "
+        f"publishable={str(analytics.publishable).lower()}"
+    )
+    _print_stage_durations(stage_durations, total_started)
+    _print_nightly_status(engine, args, stage_durations)
+    return 1 if analytics.status == "failed" else 0
+
+
+def _refresh_catalog_stage(
+    engine: Engine, *, args, stage_durations: dict[str, float]
+) -> str | None:
+    if not args.refresh_catalog:
+        return None
+    started = time.perf_counter()
+    try:
+        pages = collect_catalog_pages()
+        with Session(engine, expire_on_commit=False, future=True) as session:
+            result = persist_catalog_run(session, pages)
+            if args.dry_run:
+                session.rollback()
+            else:
+                session.commit()
+        print(
+            f"Catalog: run_id={result.scrape_run_id} entries={result.unique_entry_count} "
+            f"mapped={result.mapped_count} unmapped={result.unmapped_count}"
+        )
+        return None
+    except Exception as exc:  # noqa: BLE001
+        return f"catalog refresh failed independently: {exc}"
+    finally:
+        stage_durations["catalog_collection_import"] = time.perf_counter() - started
+
+
+def main(argv: list[str] | None = None) -> int:
+    arguments = sys.argv[1:] if argv is None else argv
+    if any(argument in {"-h", "--help"} for argument in arguments):
+        return _main_unlocked(arguments, None)
+    engine = get_engine()
+    with orchestration_lock(engine) as acquired:
+        if not acquired:
+            print("SKIP: already_running")
+            return 0
+        return _main_unlocked(arguments, engine)
 
 
 if __name__ == "__main__":

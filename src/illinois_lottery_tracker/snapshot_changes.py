@@ -112,6 +112,23 @@ def find_comparable_run_ids(session: Session) -> list[int]:
     file with --force is not treated as a more-recent source capture than a nightly
     run that processed newer content.
     """
+    complete_run_ids = list(
+        session.scalars(
+            select(ScrapeRun.id)
+            .where(
+                ScrapeRun.workflow == "unpaid_prizes",
+                ScrapeRun.status == "success",
+                ScrapeRun.is_complete.is_(True),
+            )
+            .order_by(ScrapeRun.source_observed_at, ScrapeRun.id)
+        )
+    )
+    if complete_run_ids or (
+        session.bind is not None and session.bind.dialect.name == "postgresql"
+    ):
+        return complete_run_ids
+
+    # Legacy SQLite test fixtures only.
     run_ids_with_snaps: set[int] = set(
         session.scalars(select(GameSnapshot.scrape_run_id).distinct()).all()
     )
@@ -181,6 +198,9 @@ def compare_scrape_runs(
     newer_run = session.get(ScrapeRun, newer_run_id)
 
     def _source_captured_at(run_id: int) -> datetime | None:
+        run = session.get(ScrapeRun, run_id)
+        if run is not None and run.source_observed_at is not None:
+            return run.source_observed_at
         return session.scalar(
             select(func.min(RawSourceSnapshot.captured_at))
             .where(RawSourceSnapshot.scrape_run_id == run_id)

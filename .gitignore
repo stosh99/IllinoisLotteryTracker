@@ -43,5 +43,6 @@ Thumbs.db
 # Project data
 data/raw/**
 !data/raw/.gitkeep
+data/backups/**
 logs/**
 !logs/.gitkeep

@@ -114,14 +114,15 @@ def _tier(
     snapshot: GameSnapshot,
     *,
     prize_amount: Decimal,
-    original_count: int | None,
-    remaining_count: int | None = 0,
+    original_count: int,
+    remaining_count: int = 0,
 ) -> PrizeTierSnapshot:
     tier = PrizeTierSnapshot(
         game_snapshot=snapshot,
         prize_amount=prize_amount,
         original_count=original_count,
         remaining_count=remaining_count,
+        claimed_count=original_count - remaining_count,
     )
     session.add(tier)
     session.flush()

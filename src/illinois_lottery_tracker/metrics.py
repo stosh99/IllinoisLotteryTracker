@@ -1,8 +1,9 @@
 """Metrics calculations for Illinois Lottery instant-ticket snapshots.
 
 Pure calculation functions are free of any database access. The updater
-function ``compute_snapshot_metrics`` reads existing rows and writes only
-computed-metric columns — it never touches raw observed values.
+function ``compute_snapshot_metrics`` remains for transition audits. Nightly
+imports call it with ``include_legacy=False`` and therefore write only direct
+descriptive ratios, never the superseded all-winner-denominator estimates.
 
 Fraction vs. percentage convention
 -----------------------------------
@@ -175,18 +176,22 @@ class MetricsResult:
     issues: list[str] = field(default_factory=list)
 
 
-def compute_snapshot_metrics(session: Session) -> MetricsResult:
+def compute_snapshot_metrics(
+    session: Session, *, include_legacy: bool = True
+) -> MetricsResult:
     """Compute and persist snapshot metrics for all game snapshots.
 
     Non-odds metrics (pct fields, top_prize_depleted) are computed for every
     snapshot regardless of whether overall_odds_one_in is set.
 
-    Odds-dependent metrics (EV, payout ratios, launch metrics) are computed only
+    With ``include_legacy=True``, odds-dependent legacy metrics are computed only
     when overall_odds_one_in is present. When odds are absent, those fields are
     explicitly cleared to None so that previously computed values do not persist
     as stale data if game metadata is later retracted.
 
-    Similarly, game.est_total_tickets is cleared to None when odds are absent.
+    ``include_legacy=False`` does not write or clear any legacy column. This is
+    the canonical import/nightly mode; historical values remain intact for the
+    one-release comparison window.
 
     Only writes computed metric columns. Never modifies raw observed counts or
     prize-tier data. Idempotent: running twice produces the same state.
@@ -228,6 +233,11 @@ def compute_snapshot_metrics(session: Session) -> MetricsResult:
             snapshot.top_prizes_remaining, snapshot.top_prizes_original
         )
         snapshots_with_nonodds_metrics += 1
+
+        if not include_legacy:
+            if game is None or game.overall_odds_one_in is None:
+                snapshots_skipped_no_odds += 1
+            continue
 
         if game is None or game.overall_odds_one_in is None:
             # Explicitly clear all odds-dependent fields so stale values from a
@@ -283,7 +293,7 @@ def compute_snapshot_metrics(session: Session) -> MetricsResult:
 
     # Update game-level est_total_tickets.  Clear it when odds are absent so
     # a previously computed value cannot outlive its odds metadata.
-    for game_id, game in all_games.items():
+    for game_id, game in all_games.items() if include_legacy else ():
         if game.overall_odds_one_in is None:
             if game.est_total_tickets is not None:
                 game.est_total_tickets = None

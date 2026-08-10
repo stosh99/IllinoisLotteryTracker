@@ -1,14 +1,21 @@
 # Mail-In Prize Lag Model
 
+> **Historical design note.** This document is superseded for implementation
+> by
+> [database_blueprint/02_analytics_specification.md](database_blueprint/02_analytics_specification.md).
+> In particular, the canonical boundary is strictly greater than `$600`, the
+> calibration band is selected by original winner count, and the same-day gap
+> subtraction below must not be implemented.
+
 ## Purpose
 
 Illinois instant-ticket prizes of `$600` or more generally require submission to
 lottery headquarters rather than ordinary retailer redemption. That creates a
 possible reporting lag in public unclaimed-prize data.
 
-This document describes a future analytics model for estimating that lag. It is
-not implemented yet because the project does not have enough historical
-snapshots to fit or validate the model responsibly.
+This document describes an abandoned precursor to the implemented analytics
+model. Its formulas and boundaries are retained only to explain the design
+history and must not be used for implementation or reporting.
 
 ## Core Caveat
 
@@ -192,7 +199,8 @@ These thresholds should be tuned after observing real data.
 
 ## Current Recommendation
 
-Do not persist mail-in lag adjusted metrics yet.
+Historical instruction only: the canonical implementation and persistence
+rules are in `database_blueprint/02_analytics_specification.md`.
 
 For now:
 
@@ -200,4 +208,3 @@ For now:
 - keep existing EV and payout-ratio metrics unchanged
 - continue collecting daily snapshots
 - use this model as report-only exploratory analytics once enough history exists
-

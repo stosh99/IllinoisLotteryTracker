@@ -10,7 +10,9 @@ EnvironmentFile=/home/stosh99/projects/IllinoisLotteryTracker/.env
 ExecStart=/home/stosh99/projects/IllinoisLotteryTracker/.venv/bin/python \
     /home/stosh99/projects/IllinoisLotteryTracker/scripts/run_nightly_unpaid_prizes_pipeline.py \
     --skip-if-today-imported \
-    --backfill-missing-metadata
+    --refresh-catalog \
+    --backup-dir /home/stosh99/projects/IllinoisLotteryTracker/data/backups \
+    --raw-growth-limit-bytes 1073741824
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=illinois-lottery-nightly

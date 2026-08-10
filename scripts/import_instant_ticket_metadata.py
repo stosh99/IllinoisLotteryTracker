@@ -10,13 +10,16 @@ import re
 import sys
 from pathlib import Path
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from illinois_lottery_tracker.catalog import reconcile_catalog_run_mappings
 from illinois_lottery_tracker.db import get_engine
 from illinois_lottery_tracker.importer import import_instant_ticket_detail_metadata
 from illinois_lottery_tracker.instant_ticket_detail_parser import (
     parse_instant_ticket_detail_html,
 )
+from illinois_lottery_tracker.models import ScrapeRun
 
 _BASE_DETAIL_URL = "https://www.illinoislottery.com/games-hub/instant-tickets"
 _TIMESTAMP_SUFFIX_RE = re.compile(r"-\d{8}T\d{6}Z$")
@@ -62,6 +65,21 @@ def main(argv: list[str] | None = None) -> int:
     with Session(engine, expire_on_commit=False, future=True) as session:
         try:
             result = import_instant_ticket_detail_metadata(session, details)
+            current_catalog_run_id = session.scalar(
+                select(ScrapeRun.id)
+                .where(
+                    ScrapeRun.workflow == "instant_ticket_catalog",
+                    ScrapeRun.status == "success",
+                    ScrapeRun.is_complete.is_(True),
+                )
+                .order_by(ScrapeRun.source_observed_at.desc(), ScrapeRun.id.desc())
+                .limit(1)
+            )
+            catalog_mappings_resolved = (
+                reconcile_catalog_run_mappings(session, current_catalog_run_id)
+                if current_catalog_run_id is not None
+                else 0
+            )
             if args.dry_run:
                 session.rollback()
             else:
@@ -78,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Games created: {result.games_created}")
     print(f"Games updated: {result.games_updated}")
     print(f"Details skipped: {result.details_skipped}")
+    print(f"Catalog mappings resolved: {catalog_mappings_resolved}")
     print(f"Parser warnings: {len(result.parser_warnings)}")
     print(f"Import issues: {len(result.issues)}")
 

@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
 from illinois_lottery_tracker.db import get_engine
 from illinois_lottery_tracker.metadata_backfill import (
     backfill_missing_game_metadata,
+    collect_metadata_network_inputs,
+    plan_metadata_targets,
     render_metadata_backfill_result,
     stderr_progress,
 )
@@ -40,17 +43,53 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Suppress progress messages on stderr.",
     )
+    parser.add_argument(
+        "--full-refresh",
+        action="store_true",
+        help="Run the separately scheduled weekly refresh for every current catalog game.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Ignore persisted retry times (does not bypass candidate matching).",
+    )
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
 
     engine = get_engine()
+    observed_now = datetime.now(UTC)
+    with Session(engine, expire_on_commit=False, future=True) as planning_session:
+        plan = plan_metadata_targets(
+            planning_session,
+            full_refresh=args.full_refresh,
+            force=args.force,
+            now=observed_now,
+        )
+        planning_session.rollback()
+    try:
+        network_inputs = collect_metadata_network_inputs(
+            plan,
+            max_detail_pages=args.max_detail_pages,
+            progress=None if args.quiet else stderr_progress,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"ERROR: metadata collection failed: {exc}", file=sys.stderr)
+        return 1
     with Session(engine, expire_on_commit=False, future=True) as session:
         try:
             result = backfill_missing_game_metadata(
                 session,
                 max_detail_pages=args.max_detail_pages,
                 progress=None if args.quiet else stderr_progress,
+                full_refresh=args.full_refresh,
+                force=args.force,
+                now=observed_now,
+                network_inputs=network_inputs,
             )
-            metrics_result = compute_snapshot_metrics(session) if result.changed_games else None
+            metrics_result = (
+                compute_snapshot_metrics(session, include_legacy=False)
+                if result.changed_games
+                else None
+            )
             if args.dry_run:
                 session.rollback()
             else:
