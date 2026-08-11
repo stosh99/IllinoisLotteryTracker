@@ -2,17 +2,17 @@ import type { RankingDataset, RankingReasonCode } from "../types/rankings";
 
 const reasonCopy: Record<Exclude<RankingReasonCode, "AVAILABLE">, string> = {
   ANALYTICS_MODEL_UNAVAILABLE:
-    "The current versioned analytics definition is unavailable.",
+    "The current estimate settings could not be verified, so no rankings are shown.",
   SOURCE_UNAVAILABLE:
-    "A complete unpaid-prizes source capture is not currently available.",
+    "A complete official prize-count report is not available right now.",
   CATALOG_UNAVAILABLE:
-    "A complete retail catalog capture is not currently available.",
+    "A complete list of games currently offered for sale is not available right now.",
   SOURCE_STALE:
-    "The latest unpaid-prizes source is too old to support a current comparison.",
+    "The latest official prize counts are too old to present as a current comparison.",
   CATALOG_STALE:
-    "The latest retail catalog is too old to support a current comparison.",
+    "The latest list of games for sale is too old to present as current.",
   ANALYTICS_UNAVAILABLE:
-    "Analytics for the newest source cutoff are pending or failed.",
+    "The newest official data has not finished processing, so current rankings are paused.",
 };
 
 interface DataStatusProps {
@@ -22,9 +22,9 @@ interface DataStatusProps {
 export function DataStatus({ dataset }: DataStatusProps) {
   const { rankings, status } = dataset;
   const isAvailable = status.available;
-  const title = isAvailable ? "Current comparison available" : "Rankings unavailable";
+  const title = isAvailable ? "Comparison ready" : "Current comparison paused";
   const detail = isAvailable
-    ? "Source, catalog, and analytics cutoffs are aligned."
+    ? "Official prize counts and the retail game list are complete for the dates shown. Every estimate uses that same snapshot."
     : reasonCopy[status.reasonCode as Exclude<RankingReasonCode, "AVAILABLE">];
 
   return (
@@ -38,34 +38,30 @@ export function DataStatus({ dataset }: DataStatusProps) {
       </div>
       <div className="data-status__copy">
         <p className="data-status__eyebrow">
-          {isAvailable ? "PUBLISHED DATA" : status.reasonCode}
+          DATA STATUS
         </p>
         <h2 id="data-status-title">{title}</h2>
         <p>{detail}</p>
       </div>
       <dl className="data-status__facts">
         <div>
-          <dt>Games available</dt>
+          <dt>Games compared</dt>
           <dd>{isAvailable ? new Set(rankings.map((row) => row.gameId)).size : 0}</dd>
         </div>
         <div>
-          <dt>Model</dt>
-          <dd>{status.modelVersion ?? "Unavailable"}</dd>
-        </div>
-        <div>
-          <dt>Prize source</dt>
+          <dt>Official prize counts</dt>
           <dd>
             <Timestamp value={status.sourceObservedAt} />
           </dd>
         </div>
         <div>
-          <dt>Retail catalog</dt>
+          <dt>Games-for-sale list</dt>
           <dd>
             <Timestamp value={status.catalogObservedAt} />
           </dd>
         </div>
         <div>
-          <dt>Page generated</dt>
+          <dt>Page updated</dt>
           <dd>
             <Timestamp value={dataset.generatedAt} />
           </dd>

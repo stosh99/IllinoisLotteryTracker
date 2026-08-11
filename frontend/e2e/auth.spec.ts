@@ -46,7 +46,7 @@ test("rankings remain usable when authentication is disabled", async ({ page }) 
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(disabledSession) }),
   );
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Current comparison available" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Comparison ready" })).toBeVisible();
   await expect(page.getByRole("table")).toBeVisible();
   await expect(page.getByRole("link", { name: "Sign in with Google" })).toHaveCount(0);
   expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
@@ -304,12 +304,12 @@ test("fake-provider journey logs in, rejects replay, rotates, and deletes", asyn
   await page.goto(providerTarget);
   await page.goto(callbackTarget);
   await page.goto(callbackLocation);
-  await expect(page.getByText("Account")).toBeVisible();
+  await expect(page.getByText("Account", { exact: true })).toBeVisible();
   expect(authorizationRequests).toHaveLength(1);
   expect(await page.evaluate(() => document.cookie)).toBe("");
   expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
   await page.reload();
-  await page.getByText("Account").click();
+  await page.getByText("Account", { exact: true }).click();
   await expect(page.getByText("player@example.test")).toBeVisible();
 
   await page.getByRole("button", { name: "Sign out" }).click();

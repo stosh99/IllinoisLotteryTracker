@@ -4,6 +4,7 @@ import { BrowserRouter, Outlet, Route, Routes } from "react-router-dom";
 import { AuthResultNotice } from "./components/AuthResultNotice";
 import { BrandMark } from "./components/BrandMark";
 import { DataStatus } from "./components/DataStatus";
+import { EvidenceGuide, EvidenceTag } from "./components/EvidenceGuide";
 import { LeaderCards } from "./components/LeaderCards";
 import { RankingFilters } from "./components/RankingFilters";
 import { RankingsTable } from "./components/RankingsTable";
@@ -27,7 +28,6 @@ interface AppProps {
   gameHistoryOverride?: GameHistory;
 }
 
-const LEADER_COUNT = 3;
 const RANKING_PAGE_SIZE = 12;
 
 export default function App({ datasetOverride, gameDetailOverride, gameHistoryOverride }: AppProps) {
@@ -136,7 +136,6 @@ function RankingExperience({ dataset }: { dataset: RankingDataset }) {
     [strategyRows, viewState.ticketPrice],
   );
   const maxMetric = Math.max(...filtered.map((row) => row.metricValue), 0);
-  const leaders = filtered.slice(0, LEADER_COUNT);
   const visibleRows = filtered.slice(0, visibleRowCount);
   const hiddenRowCount = filtered.length - visibleRows.length;
 
@@ -165,10 +164,6 @@ function RankingExperience({ dataset }: { dataset: RankingDataset }) {
             <h2 id="ranking-insight-title">{strategy.question}</h2>
             <p>{strategy.explanation}</p>
           </div>
-          <div className="result-count" aria-live="polite">
-            <strong>{filtered.length}</strong>
-            <span>{filtered.length === 1 ? "game" : "games"} in view</span>
-          </div>
         </div>
 
         <RankingFilters
@@ -187,10 +182,9 @@ function RankingExperience({ dataset }: { dataset: RankingDataset }) {
         ) : (
           <>
             <LeaderCards
-              rankings={leaders}
+              rankings={filtered}
               maxMetric={maxMetric}
               filteredByPrice={viewState.ticketPrice !== "all"}
-              totalRankings={filtered.length}
             />
             <div className="all-rankings-heading">
               <div>
@@ -269,7 +263,7 @@ function Hero() {
         </p>
         <div className="hero__actions">
           <a className="button" href="#rankings">Explore the comparison</a>
-          <a className="text-link" href="#methodology">See how the model works →</a>
+          <a className="text-link" href="#methodology">See how the estimates work →</a>
         </div>
       </div>
       <aside className="hero-card" aria-label="What this site promises">
@@ -279,7 +273,7 @@ function Hero() {
         </blockquote>
         <ul>
           <li><span aria-hidden="true">01</span> One transparent metric per ranking</li>
-          <li><span aria-hidden="true">02</span> Source and model cutoff always visible</li>
+          <li><span aria-hidden="true">02</span> Source date and estimate type always visible</li>
           <li><span aria-hidden="true">03</span> Partial or stale results never ranked</li>
         </ul>
       </aside>
@@ -292,10 +286,10 @@ function CaveatStrip() {
     <aside className="caveat-strip" aria-label="Important estimate caveat">
       <strong>Read this first</strong>
       <p>
-        Estimated values use public unclaimed-prize data. Unclaimed prizes may not
-        equal unsold tickets, and large claims may be reported later.
+        Estimates describe game-wide averages—not the next ticket. Official unclaimed
+        counts can include sold winners that have not yet been processed as claimed.
       </p>
-      <a href="#methodology">Why that matters</a>
+      <a href="#methodology">How estimates work</a>
     </aside>
   );
 }
@@ -304,35 +298,100 @@ function Methodology() {
   return (
     <section className="methodology" id="methodology" aria-labelledby="methodology-title">
       <div className="section-heading section-heading--light">
-        <p className="eyebrow">BUILT FOR AUDITABILITY</p>
-        <h2 id="methodology-title">An estimate should show its work.</h2>
+        <p className="eyebrow">HOW TO READ THE ESTIMATES</p>
+        <h2 id="methodology-title">Know which numbers are reported—and which are estimated.</h2>
         <p>
-          The frontend is designed around the database’s cutoff-strict publication
-          contract, not around a permanently available leaderboard.
+          Illinois publishes prize counts and overall game odds, but not the number of
+          tickets still for sale. This site keeps those reported facts visible and
+          labels every additional calculation.
         </p>
       </div>
+      <EvidenceGuide />
       <ol className="methodology__steps">
         <li>
           <span>01</span>
-          <h3>Observe</h3>
-          <p>Preserve official source captures and reported prize counts without rewriting history.</p>
+          <h3>Start with the report</h3>
+          <p>
+            Starting prizes, reported unclaimed prizes, and published overall odds
+            come from the Illinois Lottery source.
+          </p>
         </li>
         <li>
           <span>02</span>
-          <h3>Estimate</h3>
-          <p>Score each prize tier against an independent progress reference, with explicit uncertainty.</p>
+          <h3>Calculate what is known</h3>
+          <p>
+            Claimed prizes are starting prizes minus reported unclaimed prizes. That
+            subtraction is exact for the published snapshot.
+          </p>
         </li>
         <li>
           <span>03</span>
-          <h3>Qualify</h3>
-          <p>Publish comparisons only when source, catalog, analytics, coverage, and freshness align.</p>
+          <h3>Estimate current supply</h3>
+          <p>
+            Current ticket supply, current chances, and prize return are estimates
+            because the lottery does not publish a live count of unsold tickets.
+          </p>
+        </li>
+        <li>
+          <span>04</span>
+          <h3>Account for claim delay</h3>
+          <p>
+            A 24-day working assumption applies only to prizes over $600 with at
+            least 300 starting prizes. Other tiers keep the official reported count.
+          </p>
         </li>
       </ol>
+      <article className="worked-example" aria-labelledby="worked-example-title">
+        <div>
+          <p className="eyebrow">WORKED EXAMPLE</p>
+          <h3 id="worked-example-title">What does “$7.42 return” mean on a $10 game?</h3>
+        </div>
+        <div className="worked-example__math">
+          <strong>$7.42 ÷ $10 = about 74¢ per $1</strong>
+          <p>
+            This is a long-run average across the game-wide prize pool. It does not
+            mean one $10 ticket is likely to pay $7.42; that ticket can lose the full
+            $10 or win one of the listed prizes.
+          </p>
+        </div>
+        <div className="worked-example__tier">
+          <p>
+            If a $1,000 tier began with 400 prizes and the official report lists 150
+            unclaimed, then <strong>250 claimed</strong> is calculated exactly.
+          </p>
+          <p>
+            Because that tier is over $600 and began with at least 300 prizes, the
+            page may also show a <EvidenceTag kind="adjusted" /> such as 143.5. The
+            official 150 remains visible beside it.
+          </p>
+        </div>
+      </article>
+      <details className="methodology-glossary">
+        <summary>Open the plain-language glossary</summary>
+        <dl>
+          <div>
+            <dt>Estimated prize return</dt>
+            <dd>Long-run average prize value represented by the current game-wide prize pool. It is not net profit or a prediction for one ticket.</dd>
+          </div>
+          <div>
+            <dt>Estimated chance now</dt>
+            <dd>A chance calculated from current prize counts and estimated current ticket supply.</dd>
+          </div>
+          <div>
+            <dt>Reported unclaimed</dt>
+            <dd>The official source count. A sold winning ticket can remain in this count until its claim is processed.</dd>
+          </div>
+          <div>
+            <dt>Small prize sample</dt>
+            <dd>A tier with too few prizes for stable adjustment. The official count remains visible; the game is not removed.</dd>
+          </div>
+        </dl>
+      </details>
       <div className="methodology__note">
-        <strong>Still negative expected value.</strong>
+        <strong>Lottery play still has negative expected value.</strong>
         <p>
-          This tool compares public data. It does not predict where a winning ticket is,
-          guarantee an outcome, or turn lottery play into an investment.
+          This tool compares public data. It does not predict where a winning ticket
+          is, guarantee an outcome, or turn lottery play into an investment.
         </p>
       </div>
     </section>

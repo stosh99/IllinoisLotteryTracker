@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
+import {
+  EvidenceGuide,
+  EvidenceTag,
+  type EvidenceKind,
+} from "../components/EvidenceGuide";
 import { GameHistorySection } from "../components/GameHistoryCharts";
+import { JackpotDependenceDetail } from "../components/JackpotDependence";
 import { formatMoney, formatOneIn } from "../lib/strategies";
 import { loadGameDetail } from "../services/gameDetails";
 import type { GameDetail, GamePrizeTier } from "../types/gameDetails";
@@ -80,6 +86,11 @@ export function GameDetailPage({ detailOverride, historyOverride }: GameDetailPa
     <main className="game-detail-page" id="main-content">
       <DetailBackLink />
       <GameDetailHeader detail={detail} />
+      <JackpotDependenceDetail
+        estimatedEvExTop={detail.estimatedEvExTop}
+        estimatedEvFull={detail.estimatedEvFull}
+        ticketPrice={detail.ticketPrice}
+      />
       <PrizeTierSection detail={detail} />
       <GameHistorySection gameId={detail.gameId} historyOverride={historyOverride} />
     </main>
@@ -97,48 +108,64 @@ function GameDetailHeader({ detail }: { detail: GameDetail }) {
         <p className="eyebrow">GAME {detail.gameNumber} · CURRENT DETAIL</p>
         <h1 id="game-detail-title">{detail.gameName}</h1>
         <p>
-          Current prize inventory and estimated odds from the same published cutoff as
-          the comparison page.
+          Current prize inventory and estimated chances from the same published data
+          date as the comparison page.
         </p>
       </div>
       <dl className="game-detail-facts">
-        <Fact label="Ticket price" value={formatMoney(detail.ticketPrice)} />
+        <Fact evidence="official" label="Ticket price" value={formatMoney(detail.ticketPrice)} />
         <Fact
-          label="Published overall odds"
+          evidence="official"
+          label="Official overall odds"
           value={formatOneIn(detail.publishedOverallOddsOneIn)}
         />
         <Fact
+          evidence="official"
           label="Top prize"
           value={formatMoney(detail.topPrizeAmount, true)}
           detail={formatCountPair(detail.topPrizesRemaining, detail.topPrizesOriginal)}
         />
         <Fact
-          label="Est. tickets sold"
+          evidence="estimated"
+          label="Estimated tickets sold"
           value={formatWholeEstimate(detail.estimatedSoldTickets)}
         />
         <Fact
-          label="Est. tickets remaining"
+          evidence="estimated"
+          label="Estimated tickets remaining"
           value={formatWholeEstimate(detail.estimatedRemainingTickets)}
         />
         <Fact
+          evidence="calculated"
           label="Time in market"
           value={detail.weeksInMarket === null ? "Unavailable" : `${detail.weeksInMarket} weeks`}
         />
       </dl>
       <p className="game-detail-hero__cutoff">
-        Prize counts observed <DetailTimestamp value={detail.sourceObservedAt} /> · Model {" "}
-        {detail.modelVersion}
+        Official prize counts dated <DetailTimestamp value={detail.sourceObservedAt} /> ·
+        Page updated <DetailTimestamp value={detail.generatedAt} />
       </p>
     </section>
   );
 }
 
-function Fact({ label, value, detail }: { label: string; value: string; detail?: string }) {
+function Fact({
+  label,
+  value,
+  detail,
+  evidence,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  evidence: EvidenceKind;
+}) {
   return (
     <div>
       <dt>{label}</dt>
       <dd>{value}</dd>
       {detail ? <small>{detail}</small> : null}
+      <EvidenceTag kind={evidence} />
     </div>
   );
 }
@@ -153,21 +180,25 @@ function PrizeTierSection({ detail }: { detail: GameDetail }) {
         </div>
         <p>{detail.tiers.length} reported prize tiers</p>
       </div>
+      <EvidenceGuide id="prize-evidence-key" />
       <div className="prize-tier-table-wrap">
-        <table className="prize-tier-table" aria-describedby="prize-tier-note">
+        <table
+          className="prize-tier-table"
+          aria-describedby="prize-evidence-key prize-tier-note"
+        >
           <caption className="visually-hidden">
             Current prize tiers for {detail.gameName}, including official counts and
-            estimated odds.
+            estimated chances.
           </caption>
           <thead>
             <tr>
               <th scope="col">Prize</th>
-              <th scope="col">Starting prizes</th>
-              <th scope="col">Claimed</th>
-              <th scope="col">Reported unclaimed</th>
-              <th scope="col">Est. unclaimed now</th>
-              <th scope="col">Est. odds now</th>
-              <th scope="col">Launch odds</th>
+              <EvidenceHeader kind="official" label="Starting prizes" />
+              <EvidenceHeader kind="calculated" label="Claimed" />
+              <EvidenceHeader kind="official" label="Reported unclaimed" />
+              <th scope="col">Current count used</th>
+              <EvidenceHeader kind="estimated" label="Estimated chance now" />
+              <EvidenceHeader kind="estimated" label="Estimated chance at launch" />
             </tr>
           </thead>
           <tbody>
@@ -180,13 +211,23 @@ function PrizeTierSection({ detail }: { detail: GameDetail }) {
       <div className="prize-tier-note" id="prize-tier-note">
         <strong>How to read this table</strong>
         <p>
-          Claimed is the starting count minus the official reported-unclaimed count.
-          “Est. unclaimed now” subtracts estimated pending claims only for eligible
-          prize tiers over $600 with at least 300 starting prizes. Other tiers retain
-          the official count. Odds are estimates, not guarantees.
+          “Claimed” is starting prizes minus the official reported-unclaimed count.
+          “Current count used” applies the 24-day working assumption only to prize
+          tiers over $600 with at least 300 starting prizes; every other tier keeps
+          the official count. Current and launch chances are estimates because live
+          ticket inventory is not published. They describe the game, not the next ticket.
         </p>
       </div>
     </section>
+  );
+}
+
+function EvidenceHeader({ label, kind }: { label: string; kind: EvidenceKind }) {
+  return (
+    <th scope="col">
+      <span>{label}</span>
+      <EvidenceTag kind={kind} />
+    </th>
   );
 }
 
@@ -202,19 +243,42 @@ function PrizeTierRow({ tier }: { tier: GamePrizeTier }) {
       <td>{formatInteger(tier.reportedRemainingCount)}</td>
       <td>
         <strong>{formatEstimatedCount(tier.estimatedRemainingCount)}</strong>
-        {tier.adjustmentStatus === "applied" ? (
-          <small>
-            Lag-adjusted · {formatEstimatedCount(tier.estimatedPendingCount)} pending
-          </small>
-        ) : null}
+        <EvidenceTag kind={tier.adjustmentStatus === "applied" ? "adjusted" : "official"} />
+        <small>{currentCountExplanation(tier)}</small>
       </td>
       <td>
         <strong>{formatOneIn(tier.currentOneIn)}</strong>
-        {tier.confidenceLabel ? <small>{tier.confidenceLabel} confidence</small> : null}
+        <small>
+          {tier.confidenceLabel ? `${formatTierSample(tier.confidenceLabel)} · ` : ""}
+          uses estimated ticket supply
+        </small>
       </td>
-      <td>{formatOneIn(tier.launchOneIn)}</td>
+      <td>
+        <strong>{formatOneIn(tier.launchOneIn)}</strong>
+        <small>Baseline from the starting prize structure</small>
+      </td>
     </tr>
   );
+}
+
+function currentCountExplanation(tier: GamePrizeTier): string {
+  if (tier.adjustmentStatus === "applied") {
+    return `${formatEstimatedCount(tier.estimatedPendingCount)} estimated pending · ${tier.lagDaysUsed ?? 24}-day working assumption`;
+  }
+  if (tier.adjustmentStatus === "reference_unavailable") {
+    return "Official count used · 24-day comparison unavailable";
+  }
+  if (tier.prizeAmount > 600 && tier.originalCount < 300) {
+    return "Official count used · fewer than 300 starting prizes";
+  }
+  return "Official count used · claim-delay adjustment does not apply";
+}
+
+function formatTierSample(confidence: GamePrizeTier["confidenceLabel"]): string {
+  if (confidence === "lumpy") return "Very small prize sample";
+  if (confidence === "low") return "Small prize sample";
+  if (confidence === "high") return "Larger prize sample";
+  return "Medium prize sample";
 }
 
 function formatInteger(value: number): string {
@@ -226,7 +290,7 @@ function formatEstimatedCount(value: number): string {
 }
 
 function formatWholeEstimate(value: number | null): string {
-  return value === null ? "Unavailable" : `≈ ${formatInteger(Math.round(value))}`;
+  return value === null ? "Unavailable" : `About ${formatInteger(Math.round(value))}`;
 }
 
 function formatCountPair(remaining: number | null, original: number | null): string {

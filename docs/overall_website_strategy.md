@@ -1,5 +1,13 @@
 # IllinoisLotteryTracker — Overall Website Strategy
 
+## Active Product Planning
+
+The durable candidate inventories and implementation decision process now live
+in [`docs/product_planning/`](product_planning/README.md). They separate
+usability/comprehension work from competitive-advantage experiments while keeping
+both connected to this strategy. Inventory entries are not approved build scope
+until they are prioritized by the owner.
+
 ## Core Product Idea
 
 IllinoisLotteryTracker should help users understand Illinois instant-ticket games using public prize-availability data.

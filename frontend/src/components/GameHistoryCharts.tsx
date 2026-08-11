@@ -7,6 +7,7 @@ import type {
   TicketSalesHistoryPoint,
   TierClaimHistorySeries,
 } from "../types/gameHistory";
+import { EvidenceTag } from "./EvidenceGuide";
 import { TimeSeriesChart, type TimeSeriesChartSeries } from "./TimeSeriesChart";
 
 const MAX_SELECTED_TIERS = 6;
@@ -55,8 +56,8 @@ export function GameHistorySection({ gameId, historyOverride }: GameHistorySecti
         <p className="eyebrow">GAME HISTORY</p>
         <h2 id="game-history-title">How this game has changed over time</h2>
         <p>
-          Dated estimates and official claimed-prize counts through the current
-          published source cutoff.
+          Dated estimates and official claimed-prize counts through the latest
+          published data date.
         </p>
       </div>
       {error ? (
@@ -121,6 +122,7 @@ function SalesHistoryChart({ history }: { history: GameHistory }) {
         yDomain={[0, maximum]}
       />
       <p className="chart-caveat">
+        <EvidenceTag kind="estimated" />{" "}
         This is inferred from the public prize pool and published overall odds; it is
         not an official sales count. Line breaks mark published prize-structure changes.
       </p>
@@ -210,6 +212,7 @@ function TierClaimHistoryChart({ history }: { history: GameHistory }) {
         </div>
       </fieldset>
       <p className="chart-caveat">
+        <EvidenceTag kind="calculated" />{" "}
         These lines use official claimed counts divided by each tier’s starting count.
         A steeper line means that tier was claimed faster during that period.
       </p>

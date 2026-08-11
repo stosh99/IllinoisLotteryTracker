@@ -6,28 +6,28 @@ const messages: Record<RankingReasonCode, { title: string; detail: string }> = {
     detail: "Reset the ticket-price filter to widen the comparison.",
   },
   ANALYTICS_MODEL_UNAVAILABLE: {
-    title: "The analytics definition is unavailable",
-    detail: "The site cannot find the current versioned analytics definition.",
+    title: "We cannot calculate a trustworthy comparison right now",
+    detail: "The current estimate settings could not be verified. No rankings are shown until that check succeeds.",
   },
   SOURCE_UNAVAILABLE: {
-    title: "Prize-source data is unavailable",
-    detail: "A complete official unpaid-prizes capture is required before comparison.",
+    title: "The official prize report is unavailable",
+    detail: "A complete Illinois Lottery prize-count report is required before current games can be compared.",
   },
   CATALOG_UNAVAILABLE: {
-    title: "Retail catalog data is unavailable",
-    detail: "Rankings require a fresh mapped catalog as well as the prize source.",
+    title: "The current games-for-sale list is unavailable",
+    detail: "The site needs both official prize counts and a complete list of games currently offered for sale.",
   },
   SOURCE_STALE: {
-    title: "The prize source is stale",
-    detail: "Last-known data is not presented as a current ranking.",
+    title: "The official prize counts are out of date",
+    detail: "Older counts are not presented as a current ranking. No demonstration games are substituted.",
   },
   CATALOG_STALE: {
-    title: "The retail catalog is stale",
-    detail: "The site cannot safely say which games are still offered for sale.",
+    title: "The games-for-sale list is out of date",
+    detail: "The site cannot safely say which games are currently available, so the comparison is paused.",
   },
   ANALYTICS_UNAVAILABLE: {
-    title: "Current analytics are unavailable",
-    detail: "The analytical stage for the newest source cutoff is pending or failed.",
+    title: "The newest data is still being processed",
+    detail: "Current rankings will return after the latest official data has been calculated and checked.",
   },
 };
 

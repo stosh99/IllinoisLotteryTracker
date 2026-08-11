@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import {
+  formatCentsPerDollar,
+  formatLongRunReturn,
   formatMetric,
   formatMoney,
   formatOneIn,
@@ -9,20 +11,20 @@ import {
   getSupportingEv,
   getStrategy,
 } from "../lib/strategies";
+import { explainRank } from "../lib/decisionSupport";
 import type { RankingRecord } from "../types/rankings";
+import { JackpotDependenceSummary } from "./JackpotDependence";
 
 interface LeaderCardsProps {
   rankings: RankingRecord[];
   maxMetric: number;
   filteredByPrice: boolean;
-  totalRankings: number;
 }
 
 export function LeaderCards({
   rankings,
   maxMetric,
   filteredByPrice,
-  totalRankings,
 }: LeaderCardsProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const scrollFrameRef = useRef<number | null>(null);
@@ -107,10 +109,7 @@ export function LeaderCards({
   return (
     <div className="leader-carousel">
       <div className="leader-carousel__toolbar">
-        <p>
-          Top {rankings.length} {rankings.length === 1 ? "leader" : "leaders"} · {totalRankings}{" "}
-          {totalRankings === 1 ? "game" : "games"} in view
-        </p>
+        <p aria-live="polite">{carouselLabel}</p>
         <div className="leader-carousel__buttons" aria-label="Browse ranked cards">
           <button
             aria-label="Show previous ranked games"
@@ -140,6 +139,7 @@ export function LeaderCards({
       >
         {rankings.map((record, index) => {
           const supportingEv = getSupportingEv(record);
+          const rankExplanation = explainRank(record, rankings, filteredByPrice);
           return (
             <article className="leader-card" data-position={index + 1} key={record.gameId}>
               <Link
@@ -170,7 +170,7 @@ export function LeaderCards({
                 <dl className="leader-card__details">
                 <div>
                   <dt>{supportingEv.label}</dt>
-                  <dd>{formatMoney(supportingEv.value)}</dd>
+                  <dd>{formatLongRunReturn(supportingEv.value, record.ticketPrice)}</dd>
                 </div>
                 <div>
                   <dt>Top prize</dt>
@@ -183,6 +183,15 @@ export function LeaderCards({
                   </dd>
                 </div>
                 </dl>
+                <div className="rank-explanation">
+                  <strong>{rankExplanation.heading}</strong>
+                  <p>{rankExplanation.basis} {rankExplanation.comparison}</p>
+                </div>
+                <JackpotDependenceSummary
+                  estimatedEvExTop={record.estimatedEvExTop}
+                  estimatedEvFull={record.estimatedEvFull}
+                  ticketPrice={record.ticketPrice}
+                />
                 <footer>
                   <ConfidenceBadge record={record} />
                   <span>{formatRelativeToLaunch(record.relativeToLaunch)}</span>
@@ -193,9 +202,6 @@ export function LeaderCards({
           );
         })}
       </div>
-      <p className="visually-hidden" aria-live="polite">
-        {carouselLabel}.
-      </p>
     </div>
   );
 }
@@ -212,23 +218,57 @@ function measureCarousel(track: HTMLDivElement): CarouselMeasurements | null {
   const firstCard = cards[0];
   if (!firstCard) return null;
 
-  const activeIndex = cards.reduce((closest, card, index) => {
-    const closestDistance = Math.abs(cards[closest]!.offsetLeft - track.scrollLeft);
-    const distance = Math.abs(card.offsetLeft - track.scrollLeft);
-    return distance < closestDistance ? index : closest;
-  }, 0);
-  const visibleCount = Math.min(
-    cards.length,
-    Math.max(1, Math.round(track.clientWidth / Math.max(firstCard.offsetWidth, 1))),
+  const visibleRange = getVisibleCardRange(
+    cards.map((card) => ({
+      start: card.offsetLeft,
+      end: card.offsetLeft + card.offsetWidth,
+    })),
+    track.scrollLeft,
+    track.scrollLeft + track.clientWidth,
   );
   const maximumScroll = Math.max(0, track.scrollWidth - track.clientWidth);
 
   return {
-    activeIndex,
-    visibleCount,
+    activeIndex: visibleRange.activeIndex,
+    visibleCount: visibleRange.visibleCount,
     canScrollPrevious: track.scrollLeft > 2,
     canScrollNext: track.scrollLeft < maximumScroll - 2,
   };
+}
+
+interface CardExtent {
+  start: number;
+  end: number;
+}
+
+export function getVisibleCardRange(
+  cards: CardExtent[],
+  viewportStart: number,
+  viewportEnd: number,
+): Pick<CarouselMeasurements, "activeIndex" | "visibleCount"> {
+  if (cards.length === 0) return { activeIndex: 0, visibleCount: 0 };
+  const visible = cards.flatMap((card, index) => {
+    const midpoint = card.start + (card.end - card.start) / 2;
+    return midpoint >= viewportStart && midpoint <= viewportEnd ? [index] : [];
+  });
+  if (visible.length > 0) {
+    const activeIndex = visible[0]!;
+    return {
+      activeIndex,
+      visibleCount: visible.at(-1)! - activeIndex + 1,
+    };
+  }
+  const viewportMidpoint = viewportStart + (viewportEnd - viewportStart) / 2;
+  const activeIndex = cards.reduce((closest, card, index) => {
+    const closestMidpoint = cards[closest]!.start +
+      (cards[closest]!.end - cards[closest]!.start) / 2;
+    const midpoint = card.start + (card.end - card.start) / 2;
+    return Math.abs(midpoint - viewportMidpoint) <
+      Math.abs(closestMidpoint - viewportMidpoint)
+      ? index
+      : closest;
+  }, 0);
+  return { activeIndex, visibleCount: 1 };
 }
 
 export function getCarouselPageStarts(cardCount: number, cardsPerPage: number): number[] {
@@ -265,29 +305,38 @@ function ArrowIcon({ direction }: { direction: "previous" | "next" }) {
 }
 
 export function ConfidenceBadge({ record }: { record: RankingRecord }) {
+  const sample = sampleDescription(record);
   return (
-    <span className={`confidence-badge confidence-badge--${record.lowestConfidence}`}>
-      {record.lowestConfidence} confidence
-      {record.containsLumpyTier ? " · lumpy tier" : ""}
+    <span
+      aria-label={`Evidence context: ${sample}. This describes the size of the prize-tier sample, not your chance of winning.`}
+      className={`sample-note sample-note--${record.lowestConfidence}`}
+    >
+      {sample}
     </span>
   );
 }
 
+export function sampleDescription(record: RankingRecord): string {
+  if (record.containsLumpyTier || record.lowestConfidence === "lumpy") {
+    return "Very small prize sample";
+  }
+  if (record.lowestConfidence === "low") return "Small prize sample";
+  if (record.lowestConfidence === "high") return "Larger prize sample";
+  return "Medium prize sample";
+}
+
 export function primaryMetric(record: RankingRecord): string {
-  if (record.strategyKey === "jackpot_top_odds") {
+  if (getStrategy(record.strategyKey).kind === "probability" && record.oneInValue !== null) {
     return formatOneIn(record.oneInValue);
   }
   return formatMetric(record);
 }
 
 export function secondaryMetric(record: RankingRecord): string {
-  if (record.strategyKey === "jackpot_top_odds") {
+  if (getStrategy(record.strategyKey).kind === "probability") {
     return `${formatMetric(record)} estimated chance`;
   }
-  if (record.oneInValue !== null) {
-    return formatOneIn(record.oneInValue);
-  }
-  return "Estimated return per $1 played";
+  return formatCentsPerDollar(record.metricValue);
 }
 
 export function relativeWidth(value: number, maximum: number): number {

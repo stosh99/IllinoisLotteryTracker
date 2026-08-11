@@ -1,5 +1,11 @@
-import { formatMoney, getSupportingEv } from "../lib/strategies";
+import {
+  formatLongRunReturn,
+  formatMoney,
+  getStrategy,
+  getSupportingEv,
+} from "../lib/strategies";
 import type { RankingRecord } from "../types/rankings";
+import { explainRank } from "../lib/decisionSupport";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ConfidenceBadge,
@@ -21,28 +27,32 @@ export function RankingsTable({
   filteredByPrice,
 }: RankingsTableProps) {
   const navigate = useNavigate();
-  const evHeader = rankings[0] ? getSupportingEv(rankings[0]).label : "Estimated EV";
+  const evHeader = rankings[0] ? getSupportingEv(rankings[0]).label : "Estimated return";
+  const metricHeader = rankings[0]
+    ? getStrategy(rankings[0].strategyKey).metricLabel
+    : "Selected estimated measure";
   return (
     <div className="ranking-table-wrap" id="all-rankings-table">
       <table className="ranking-table">
         <caption className="visually-hidden">
           Ranked instant-ticket comparison with estimated metric, ticket price,
-          estimated value, top prize, and evidence confidence.
+          long-run prize return, top prize, and prize-sample context.
         </caption>
         <thead>
           <tr>
             <th scope="col">Rank</th>
             <th scope="col">Game</th>
             <th scope="col">Price</th>
-            <th scope="col">Estimated metric</th>
+            <th scope="col">{metricHeader}</th>
             <th scope="col">{evHeader}</th>
             <th scope="col">Top prize</th>
-            <th scope="col">Evidence</th>
+            <th scope="col">Prize sample</th>
           </tr>
         </thead>
         <tbody>
           {rankings.map((record) => {
             const supportingEv = getSupportingEv(record);
+            const rankExplanation = explainRank(record, rankings, filteredByPrice);
             return (
               <tr
                 className="ranking-table__clickable-row"
@@ -71,7 +81,7 @@ export function RankingsTable({
                 <td data-label="Price">
                   <span className="table-price">${record.ticketPrice}</span>
                 </td>
-                <td data-label="Estimated metric" className="table-metric">
+                <td data-label={metricHeader} className="table-metric">
                   <div>
                     <strong>{primaryMetric(record)}</strong>
                     <small>{secondaryMetric(record)}</small>
@@ -82,8 +92,13 @@ export function RankingsTable({
                     max="100"
                     value={relativeWidth(record.metricValue, maxMetric)}
                   />
+                  <small className="table-rank-explanation">
+                    {rankExplanation.comparison}
+                  </small>
                 </td>
-                <td data-label={supportingEv.label}>{formatMoney(supportingEv.value)}</td>
+                <td data-label={supportingEv.label}>
+                  {formatLongRunReturn(supportingEv.value, record.ticketPrice)}
+                </td>
                 <td data-label="Top prize">
                   <strong>{formatMoney(record.topPrizeAmount, true)}</strong>
                   <small>
@@ -93,10 +108,10 @@ export function RankingsTable({
                     )}
                   </small>
                 </td>
-                <td data-label="Evidence">
+                <td data-label="Prize sample">
                   <ConfidenceBadge record={record} />
                   <small>
-                    {Math.round(record.targetCountCoverage * 100)}% tier coverage
+                    {formatCoverage(record.targetCountCoverage)}
                   </small>
                 </td>
               </tr>
@@ -106,4 +121,11 @@ export function RankingsTable({
       </table>
     </div>
   );
+}
+
+function formatCoverage(value: number): string {
+  const percentage = Math.round(value * 100);
+  return percentage >= 100
+    ? "All matching prize counts included"
+    : `${percentage}% of matching prize counts included`;
 }

@@ -475,8 +475,89 @@ dd {
 
 .data-status__facts {
   display: grid;
-  grid-template-columns: 0.7fr 0.9fr repeat(3, 1.35fr);
+  grid-template-columns: 0.7fr repeat(3, 1.35fr);
   margin: 0;
+}
+
+.evidence-tag {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.24rem 0.45rem;
+  color: #174a68;
+  font-size: 0.58rem;
+  font-weight: 900;
+  letter-spacing: 0.035em;
+  line-height: 1.25;
+  text-transform: none;
+  background: #e7f1f6;
+  border: 1px solid #aac8d8;
+  border-radius: 999px;
+}
+
+.evidence-tag--calculated {
+  color: #205d4b;
+  background: var(--green-light);
+  border-color: #acd2c5;
+}
+
+.evidence-tag--estimated {
+  color: #785d14;
+  background: var(--gold-light);
+  border-color: #d9c77e;
+}
+
+.evidence-tag--adjusted {
+  color: #7b3324;
+  background: var(--rust-light);
+  border-color: #dfb4aa;
+}
+
+.evidence-guide {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.3fr) minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+  padding: 1.2rem 1.35rem;
+  margin: 1.5rem 0;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+}
+
+.evidence-guide__heading strong,
+.evidence-guide__heading span {
+  display: block;
+}
+
+.evidence-guide__heading strong {
+  margin-bottom: 0.35rem;
+  color: var(--navy-deep);
+  font-size: 0.78rem;
+}
+
+.evidence-guide__heading span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.evidence-guide ul {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 1rem;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.evidence-guide li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.4;
 }
 
 .data-status__facts div {
@@ -963,6 +1044,45 @@ dd {
   line-height: 1.4;
 }
 
+.rank-explanation {
+  padding: 0.9rem 1rem;
+  margin: 0 0 0.8rem;
+  background: #f4f7f9;
+  border-left: 3px solid var(--blue);
+}
+
+.rank-explanation > strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--navy-deep);
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.065em;
+  text-transform: uppercase;
+}
+
+.rank-explanation > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.jackpot-dependence-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: start;
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.jackpot-dependence-summary .evidence-tag {
+  margin-top: 0.05rem;
+}
+
 .leader-card footer {
   display: flex;
   gap: 0.75rem;
@@ -986,7 +1106,7 @@ dd {
   text-transform: uppercase;
 }
 
-.confidence-badge {
+.sample-note {
   display: inline-flex;
   width: fit-content;
   padding: 0.3rem 0.5rem;
@@ -994,18 +1114,17 @@ dd {
   font-size: 0.61rem;
   font-weight: 900;
   line-height: 1.25;
-  text-transform: capitalize;
   background: var(--gold-light);
   border-radius: 999px;
 }
 
-.confidence-badge--high {
+.sample-note--high {
   color: #205d4b;
   background: var(--green-light);
 }
 
-.confidence-badge--low,
-.confidence-badge--lumpy {
+.sample-note--low,
+.sample-note--lumpy {
   color: #8b3826;
   background: var(--rust-light);
 }
@@ -1152,6 +1271,14 @@ dd {
   margin: 0.55rem 0 0;
 }
 
+.table-rank-explanation {
+  display: block;
+  margin-top: 0.6rem;
+  color: var(--muted);
+  font-size: 0.65rem;
+  line-height: 1.45;
+}
+
 .ranking-table td:last-child > small {
   margin-top: 0.4rem;
 }
@@ -1292,11 +1419,160 @@ dd {
   line-height: 1.35;
 }
 
+.game-detail-facts .evidence-tag {
+  margin-top: 0.55rem;
+}
+
 .game-detail-hero__cutoff {
   margin: 1rem 0 0;
   color: #9fb3c3;
   font-size: 0.7rem;
   font-weight: 700;
+}
+
+.jackpot-dependence {
+  padding: clamp(2rem, 5vw, 3.5rem);
+  margin-top: clamp(2rem, 5vw, 3.5rem);
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: 0 14px 34px rgb(16 42 67 / 7%);
+}
+
+.jackpot-dependence__heading {
+  display: flex;
+  gap: 2rem;
+  align-items: start;
+  justify-content: space-between;
+  margin-bottom: 2rem;
+}
+
+.jackpot-dependence__heading h2 {
+  max-width: 850px;
+  margin-bottom: 0;
+  color: var(--navy-deep);
+  font-family: Georgia, Cambria, "Times New Roman", serif;
+  font-size: clamp(2rem, 4.5vw, 3.4rem);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+}
+
+.jackpot-dependence__facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0 0 1.5rem;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.jackpot-dependence__facts > div {
+  min-width: 0;
+  padding: 1.25rem;
+  border-right: 1px solid var(--line);
+}
+
+.jackpot-dependence__facts > div:first-child {
+  padding-left: 0;
+}
+
+.jackpot-dependence__facts > div:last-child {
+  padding-right: 0;
+  border-right: 0;
+}
+
+.jackpot-dependence__facts dt {
+  margin-bottom: 0.45rem;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 900;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
+}
+
+.jackpot-dependence__facts dd {
+  margin: 0;
+  color: var(--navy-deep);
+  font-family: Georgia, Cambria, "Times New Roman", serif;
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.jackpot-dependence__facts small {
+  display: block;
+  margin-top: 0.45rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.jackpot-dependence__bar {
+  display: flex;
+  width: 100%;
+  height: 18px;
+  overflow: hidden;
+  background: #e9edf0;
+  border: 1px solid #c8d2da;
+  border-radius: 999px;
+}
+
+.jackpot-dependence__bar-non-top {
+  background: var(--blue);
+}
+
+.jackpot-dependence__bar-top {
+  background: var(--gold);
+  border-left: 2px solid white;
+}
+
+.jackpot-dependence__key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  margin-top: 0.8rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.jackpot-dependence__key > span {
+  display: inline-flex;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.jackpot-dependence__swatch {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border: 1px solid rgb(16 42 67 / 22%);
+}
+
+.jackpot-dependence__swatch--non-top {
+  background: var(--blue);
+}
+
+.jackpot-dependence__swatch--top {
+  background: var(--gold);
+}
+
+.jackpot-dependence__interpretation,
+.jackpot-dependence__unavailable p {
+  max-width: 900px;
+  margin: 1.3rem 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.65;
+}
+
+.jackpot-dependence__unavailable {
+  padding: 1.5rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.jackpot-dependence__unavailable strong {
+  color: var(--navy-deep);
 }
 
 .prize-tier-section {
@@ -1363,6 +1639,15 @@ dd {
   letter-spacing: 0.075em;
   text-transform: uppercase;
   background: var(--navy);
+}
+
+.prize-tier-table thead th > span:first-child {
+  display: block;
+}
+
+.prize-tier-table thead .evidence-tag {
+  margin-top: 0.45rem;
+  white-space: nowrap;
 }
 
 .prize-tier-table thead th:first-child,
@@ -1433,6 +1718,11 @@ dd {
   font-size: 0.61rem;
   font-weight: 650;
   line-height: 1.35;
+}
+
+.prize-tier-table td > .evidence-tag {
+  margin-top: 0.35rem;
+  margin-left: auto;
 }
 
 .prize-tier-table tr[data-adjusted="true"] td:nth-child(5) > small {
@@ -1712,6 +2002,11 @@ dd {
   line-height: 1.55;
 }
 
+.chart-caveat .evidence-tag {
+  margin-right: 0.2rem;
+  vertical-align: middle;
+}
+
 .chart-data-disclosure {
   margin-top: 1rem;
   border-top: 1px solid var(--line);
@@ -1845,13 +2140,109 @@ dd {
 
 .methodology__steps {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1px;
   padding: 0;
   margin: 3.5rem 0 0;
   list-style: none;
   background: rgb(255 255 255 / 14%);
   border: 1px solid rgb(255 255 255 / 14%);
+}
+
+.methodology > .evidence-guide {
+  margin-top: 3rem;
+  margin-bottom: 0;
+}
+
+.worked-example {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.7fr) minmax(260px, 1fr) minmax(260px, 1fr);
+  gap: 1px;
+  margin-top: 2rem;
+  color: var(--navy-deep);
+  background: rgb(255 255 255 / 18%);
+  border: 1px solid rgb(255 255 255 / 18%);
+}
+
+.worked-example > div {
+  padding: 1.5rem;
+  background: #f7f3e9;
+}
+
+.worked-example h3 {
+  margin-bottom: 0;
+  font-family: Georgia, Cambria, "Times New Roman", serif;
+  font-size: 1.5rem;
+  line-height: 1.2;
+}
+
+.worked-example p {
+  margin-bottom: 0.7rem;
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.worked-example p:last-child {
+  margin-bottom: 0;
+}
+
+.worked-example__math > strong {
+  display: block;
+  margin-bottom: 0.8rem;
+  color: var(--rust);
+  font-family: Georgia, Cambria, "Times New Roman", serif;
+  font-size: 1.25rem;
+}
+
+.worked-example__tier .evidence-tag {
+  vertical-align: baseline;
+}
+
+.methodology-glossary {
+  margin-top: 1.2rem;
+  color: var(--navy-deep);
+  background: #fff;
+  border: 1px solid rgb(255 255 255 / 18%);
+}
+
+.methodology-glossary summary {
+  min-height: 48px;
+  padding: 0.95rem 1.2rem;
+  color: var(--blue);
+  font-size: 0.78rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.methodology-glossary dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  border-top: 1px solid var(--line);
+}
+
+.methodology-glossary dl > div {
+  padding: 1rem 1.2rem;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.methodology-glossary dl > div:nth-child(even) {
+  border-right: 0;
+}
+
+.methodology-glossary dt {
+  margin-bottom: 0.35rem;
+  font-size: 0.74rem;
+  font-weight: 900;
+}
+
+.methodology-glossary dd {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.55;
 }
 
 .methodology__steps li {
@@ -2184,6 +2575,18 @@ dd {
     grid-column: 2;
   }
 
+  .methodology__steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .worked-example {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .worked-example > div:first-child {
+    grid-column: 1 / -1;
+  }
+
   .strategy-picker {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -2239,6 +2642,19 @@ dd {
 
   .leader-card {
     flex-basis: calc((100% - 1.25rem) / 2);
+  }
+
+  .evidence-guide {
+    grid-template-columns: 1fr;
+    gap: 0.9rem;
+  }
+
+  .worked-example {
+    grid-template-columns: 1fr;
+  }
+
+  .worked-example > div:first-child {
+    grid-column: auto;
   }
 
   .site-footer {
@@ -2367,6 +2783,24 @@ dd {
   .data-status__facts div {
     padding: 0 0.65rem;
     border-left: 0;
+    border-right: 0;
+  }
+
+  .evidence-guide {
+    padding: 1rem;
+  }
+
+  .evidence-guide ul,
+  .methodology-glossary dl {
+    grid-template-columns: 1fr;
+  }
+
+  .evidence-guide li {
+    align-items: start;
+    grid-template-columns: 1fr;
+  }
+
+  .methodology-glossary dl > div {
     border-right: 0;
   }
 
@@ -2623,6 +3057,36 @@ dd {
   }
 
   .game-detail-facts > div:nth-last-child(-n + 2) {
+    border-bottom: 0;
+  }
+
+  .jackpot-dependence {
+    padding: 1.4rem 1.1rem;
+  }
+
+  .jackpot-dependence__heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.8rem;
+  }
+
+  .jackpot-dependence__heading h2 {
+    font-size: 2.15rem;
+  }
+
+  .jackpot-dependence__facts {
+    grid-template-columns: 1fr;
+  }
+
+  .jackpot-dependence__facts > div,
+  .jackpot-dependence__facts > div:first-child,
+  .jackpot-dependence__facts > div:last-child {
+    padding: 1rem 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .jackpot-dependence__facts > div:last-child {
     border-bottom: 0;
   }
 
