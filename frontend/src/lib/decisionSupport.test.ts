@@ -45,6 +45,13 @@ describe("ranking explanations", () => {
     expect(explanation.comparison).toMatch(/1 in .+; the leader is 1 in/i);
   });
 
+  it("states that the profit comparison excludes the top prize", () => {
+    const rows = rowsFor("profit_ex_top");
+    expect(explainRank(rows[1]!, rows, false).basis).toMatch(
+      /winning more than the ticket price, excluding the top prize/i,
+    );
+  });
+
   it("falls back to percentages when one-in-X is unavailable", () => {
     const rows = rowsFor("money_back_exact").map((record) => ({
       ...record,

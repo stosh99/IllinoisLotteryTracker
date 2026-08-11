@@ -13,18 +13,22 @@ import {
 } from "../lib/strategies";
 import { explainRank } from "../lib/decisionSupport";
 import type { RankingRecord } from "../types/rankings";
+import type { RankingViewState } from "../types/rankings";
+import { gameDetailHref } from "../lib/urlState";
 import { JackpotDependenceSummary } from "./JackpotDependence";
 
 interface LeaderCardsProps {
   rankings: RankingRecord[];
   maxMetric: number;
   filteredByPrice: boolean;
+  viewState: RankingViewState;
 }
 
 export function LeaderCards({
   rankings,
   maxMetric,
   filteredByPrice,
+  viewState,
 }: LeaderCardsProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const scrollFrameRef = useRef<number | null>(null);
@@ -146,7 +150,7 @@ export function LeaderCards({
                 aria-label={`View details for ${record.gameName}`}
                 className="leader-card__link"
                 draggable={false}
-                to={`/games/${record.gameId}`}
+                to={gameDetailHref(record.gameId, viewState)}
               >
                 <div className="leader-card__topline">
                 <span className="rank-badge">

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 
 import {
   EvidenceGuide,
@@ -8,7 +8,15 @@ import {
 } from "../components/EvidenceGuide";
 import { GameHistorySection } from "../components/GameHistoryCharts";
 import { JackpotDependenceDetail } from "../components/JackpotDependence";
+import { OutcomeLadder } from "../components/OutcomeLadder";
+import { ShareLinkButton } from "../components/ShareLinkButton";
 import { formatMoney, formatOneIn } from "../lib/strategies";
+import {
+  comparisonHref,
+  gameDetailHref,
+  parseViewState,
+  viewStateLabel,
+} from "../lib/urlState";
 import { loadGameDetail } from "../services/gameDetails";
 import type { GameDetail, GamePrizeTier } from "../types/gameDetails";
 import type { GameHistory } from "../types/gameHistory";
@@ -61,7 +69,7 @@ export function GameDetailPage({ detailOverride, historyOverride }: GameDetailPa
   if (error) {
     return (
       <main className="game-detail-page" id="main-content">
-        <DetailBackLink />
+        <DetailNavigation />
         <section className="load-state" role="alert">
           <p className="eyebrow">GAME DETAIL</p>
           <h1>We could not load this game.</h1>
@@ -74,6 +82,7 @@ export function GameDetailPage({ detailOverride, historyOverride }: GameDetailPa
   if (!detail) {
     return (
       <main className="game-detail-page" id="main-content">
+        <DetailNavigation />
         <section className="load-state" aria-live="polite">
           <span className="loading-line" />
           <p>Loading game details…</p>
@@ -84,21 +93,40 @@ export function GameDetailPage({ detailOverride, historyOverride }: GameDetailPa
 
   return (
     <main className="game-detail-page" id="main-content">
-      <DetailBackLink />
+      <DetailNavigation gameId={detail.gameId} />
       <GameDetailHeader detail={detail} />
       <JackpotDependenceDetail
         estimatedEvExTop={detail.estimatedEvExTop}
         estimatedEvFull={detail.estimatedEvFull}
         ticketPrice={detail.ticketPrice}
       />
+      <OutcomeLadder detail={detail} />
       <PrizeTierSection detail={detail} />
       <GameHistorySection gameId={detail.gameId} historyOverride={historyOverride} />
     </main>
   );
 }
 
-function DetailBackLink() {
-  return <Link className="game-detail__back" to="/#rankings">← Back to comparison</Link>;
+function DetailNavigation({ gameId }: { gameId?: number }) {
+  const location = useLocation();
+  const viewState = parseViewState(location.search);
+  return (
+    <div className="game-detail-navigation">
+      <div>
+        <Link className="game-detail__back" to={comparisonHref(viewState)}>
+          ← Back to comparison
+        </Link>
+        <p>Returns to {viewStateLabel(viewState)}</p>
+      </div>
+      {gameId ? (
+        <ShareLinkButton
+          href={gameDetailHref(gameId, viewState)}
+          label="Copy this game view"
+          successMessage="Game link copied."
+        />
+      ) : null}
+    </div>
+  );
 }
 
 function GameDetailHeader({ detail }: { detail: GameDetail }) {

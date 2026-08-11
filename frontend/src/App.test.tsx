@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import App from "./App";
 import { rankingDatasetFixture } from "./test/rankingDatasetFixture";
@@ -69,6 +69,64 @@ describe("initial ranking experience", () => {
     expect(window.location.search).toBe("?strategy=value_full&price=10");
     expect(screen.getAllByText("Lakefront 10X").length).toBeGreaterThan(0);
     expect(screen.queryByText("Prairie Gold")).not.toBeInTheDocument();
+  });
+
+  it("offers a transparent non-jackpot profit comparison", async () => {
+    const user = userEvent.setup();
+    render(<App datasetOverride={rankingDatasetFixture} />);
+
+    await user.click(screen.getByRole("radio", { name: /Come out ahead/i }));
+
+    expect(window.location.search).toBe("?strategy=profit_ex_top");
+    expect(
+      screen.getByRole("heading", { name: "Where is a non-jackpot profit most likely?" }),
+    ).toBeVisible();
+    expect(screen.getAllByText(/excluding (the )?top prize/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/winning more than the ticket price/i).length).toBeGreaterThan(0);
+  });
+
+  it("carries configured state into real detail hrefs and copied links", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    window.history.replaceState(
+      {},
+      "",
+      "/?strategy=value_full&price=10&authResult=failed",
+    );
+    render(<App datasetOverride={rankingDatasetFixture} />);
+
+    const detailLinks = screen.getAllByRole("link", {
+      name: "View details for Lakefront 10X",
+    });
+    for (const link of detailLinks) {
+      expect(link).toHaveAttribute(
+        "href",
+        "/games/102?strategy=value_full&price=10",
+      );
+    }
+
+    await user.click(screen.getByRole("button", { name: "Copy this view" }));
+    expect(writeText).toHaveBeenCalledWith(
+      `${window.location.origin}/?strategy=value_full&price=10#rankings`,
+    );
+    expect(screen.getByText("Comparison link copied.")).toBeVisible();
+  });
+
+  it("reports clipboard failure without claiming success", async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) },
+    });
+    render(<App datasetOverride={rankingDatasetFixture} />);
+
+    await user.click(screen.getByRole("button", { name: "Copy this view" }));
+    expect(screen.getByText(/copy unavailable/i)).toBeVisible();
+    expect(screen.queryByText("Comparison link copied.")).not.toBeInTheDocument();
   });
 
   it("supports arrow-key navigation through the comparison goals", async () => {

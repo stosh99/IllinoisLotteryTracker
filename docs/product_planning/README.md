@@ -1,6 +1,6 @@
 # Product planning workstreams
 
-Last updated: 2026-08-10
+Last updated: 2026-08-11
 
 Planning baseline: commit `fa3957e`
 
@@ -25,6 +25,10 @@ The working inventories are:
 - [Track 1, milestone 1 evaluation](TRACK_1_MILESTONE_1_EVALUATION.md)
 - [Track 1, milestone 2 specification](TRACK_1_MILESTONE_2_SPEC.md)
 - [Track 1, milestone 2 evaluation](TRACK_1_MILESTONE_2_EVALUATION.md)
+- [Track 1, milestone 3 specification](TRACK_1_MILESTONE_3_SPEC.md)
+- [Track 1, milestone 3 evaluation](TRACK_1_MILESTONE_3_EVALUATION.md)
+- [Track 1, milestone 4 specification](TRACK_1_MILESTONE_4_SPEC.md)
+- [Track 1, milestone 4 evaluation](TRACK_1_MILESTONE_4_EVALUATION.md)
 
 ## What these documents are—and are not
 
@@ -105,7 +109,8 @@ As of the planning baseline:
 
 - Live ranking endpoints and a React comparison experience are connected to the
   remediated database.
-- Five question-first playing styles are exposed in the primary interface.
+- Six question-first playing styles are exposed in the primary interface,
+  including a non-jackpot-profit view.
 - Ranking cards and rows lead to a game-detail page.
 - The detail page contains a prize-tier table and separate ticket-sales and
   tier-claim history views with exact-data fallbacks.
@@ -114,7 +119,8 @@ As of the planning baseline:
   eligibility rule and current 24-day assumption; the old adaptive lag and
   model-approval approach was removed.
 - The backend contains additional useful measures, including probability of any
-  profit excluding the top prize, that are not yet primary interface choices.
+  profit excluding the top prize; the first outcome ladder now exposes the
+  selected player-facing measures without changing their formulas.
 - Authentication is implemented but disabled pending its external release
   gates. Personal ticket entry and tracking are not implemented.
 - Publication remains fail-closed for stale, structurally invalid, or otherwise
@@ -162,10 +168,10 @@ understand the feature, then whether they prefer or return for it.
 | 2026-08-10 | Leave priority unset pending owner review. | Documentation is not approval to build every candidate. |
 | 2026-08-10 | Make usability the first specified implementation milestone. | Differentiated analysis cannot succeed if users cannot interpret it. |
 | 2026-08-10 | Approve U-07–U-13 for the first usability build, U-01–U-06 for validation, and U-22 as its acceptance layer. | Establish a trustworthy language system before adding more decision-support features. |
+| 2026-08-11 | Build U-15 as a complete first-pass outcome ladder and add the existing non-jackpot-profit ranking as a primary question. | Make every discussed outcome visible for owner inspection before reducing or reprioritizing the design. |
 
 ## Next planning decision
 
-The first two usability milestones are implemented and engineering-verified;
-their observed-user comprehension checks remain open. If users are still not
-available, the next coherent engineering milestone is U-21, durable comparison
-and return state, followed separately by U-15, U-18, and U-17.
+The first four usability milestones are implemented and engineering-verified;
+their observed-user comprehension checks remain open. Milestone 4 now needs
+owner visual review and revision before choosing between U-18 and U-17.

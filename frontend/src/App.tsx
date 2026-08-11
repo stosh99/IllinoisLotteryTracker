@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BrowserRouter, Outlet, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Outlet, Route, Routes, useLocation } from "react-router-dom";
 
 import { AuthResultNotice } from "./components/AuthResultNotice";
 import { BrandMark } from "./components/BrandMark";
@@ -8,13 +8,14 @@ import { EvidenceGuide, EvidenceTag } from "./components/EvidenceGuide";
 import { LeaderCards } from "./components/LeaderCards";
 import { RankingFilters } from "./components/RankingFilters";
 import { RankingsTable } from "./components/RankingsTable";
+import { ShareLinkButton } from "./components/ShareLinkButton";
 import { SignInControl } from "./components/SignInControl";
 import { StrategyPicker } from "./components/StrategyPicker";
 import { UnavailableState } from "./components/UnavailableState";
 import { AuthSessionProvider } from "./context/AuthSessionProvider";
 import { useRankingViewState } from "./hooks/useRankingViewState";
 import { getStrategy } from "./lib/strategies";
-import { DEFAULT_VIEW_STATE } from "./lib/urlState";
+import { comparisonHref, DEFAULT_VIEW_STATE, parseViewState } from "./lib/urlState";
 import { AccountPage } from "./pages/AccountPage";
 import { GameDetailPage } from "./pages/GameDetailPage";
 import { loadRankingDataset } from "./services/rankings";
@@ -185,6 +186,7 @@ function RankingExperience({ dataset }: { dataset: RankingDataset }) {
               rankings={filtered}
               maxMetric={maxMetric}
               filteredByPrice={viewState.ticketPrice !== "all"}
+              viewState={viewState}
             />
             <div className="all-rankings-heading">
               <div>
@@ -194,11 +196,17 @@ function RankingExperience({ dataset }: { dataset: RankingDataset }) {
               <p>
                 Values stay visible without hover. Rank ties share the same number.
               </p>
+              <ShareLinkButton
+                href={comparisonHref(viewState)}
+                label="Copy this view"
+                successMessage="Comparison link copied."
+              />
             </div>
             <RankingsTable
               rankings={visibleRows}
               maxMetric={maxMetric}
               filteredByPrice={viewState.ticketPrice !== "all"}
+              viewState={viewState}
             />
             <div className="ranking-progress" aria-live="polite">
               <p>
@@ -228,6 +236,8 @@ function RankingExperience({ dataset }: { dataset: RankingDataset }) {
 }
 
 function SiteHeader() {
+  const location = useLocation();
+  const viewState = parseViewState(location.search);
   return (
     <header className="site-header">
       <a className="brand" href="/" aria-label="Illinois Lottery Tracker home">
@@ -238,9 +248,9 @@ function SiteHeader() {
         </span>
       </a>
       <nav aria-label="Primary navigation">
-        <a href="/#rankings">Compare games</a>
-        <a href="/#methodology">Methodology</a>
-        <a href="/#data-status">Data status</a>
+        <a href={comparisonHref(viewState)}>Compare games</a>
+        <a href={comparisonHref(viewState, "#methodology")}>Methodology</a>
+        <a href={comparisonHref(viewState, "#data-status")}>Data status</a>
       </nav>
       <SignInControl />
     </header>

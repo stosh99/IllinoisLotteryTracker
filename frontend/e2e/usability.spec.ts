@@ -99,6 +99,7 @@ test("comparison explains estimates and keeps the carousel counter truthful", as
     [/Practical value/, /return without the top prize/],
     [/Overall value/, /return including all prizes/],
     [/Money back/, /winning exactly the ticket price/],
+    [/Come out ahead/, /winning more than the ticket price, excluding the top prize/],
     [/10× upside/, /winning at least 10×, excluding the top prize/],
     [/Jackpot chase/, /winning the top prize/],
   ]) {
@@ -159,6 +160,13 @@ test("game detail distinguishes official facts, calculations, and estimates", as
   await expect(page.getByText("70.4¢ per $1", { exact: true })).toBeVisible();
   await expect(page.getByText("3.8¢ per $1", { exact: true })).toBeVisible();
   await expect(page.getByRole("img", { name: /estimated return comes from prizes below the top tier/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "What could one ticket return?" })).toBeVisible();
+  await expect(page.getByText("Exactly money back", { exact: true })).toBeVisible();
+  await expect(page.getByText("Any ordinary profit", { exact: true })).toBeVisible();
+  await expect(page.getByText("At least 5× the ticket price", { exact: true })).toBeVisible();
+  await expect(page.getByText("At least 10× the ticket price", { exact: true })).toBeVisible();
+  await expect(page.getByText(/do not add these three percentages/i)).toBeVisible();
+  await expect(page.getByText("0.00009% estimated chance", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Every prize tier, in one view" })).toBeVisible();
   await expect(page.getByText("24-day working assumption", { exact: false }).first()).toBeVisible();
   await expect(page.getByText("fewer than 300 starting prizes", { exact: false })).toBeVisible();
@@ -178,6 +186,80 @@ test("game detail distinguishes official facts, calculations, and estimates", as
   await page.getByRole("link", { name: "Back to comparison" }).focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Comparison ready" })).toBeVisible();
+});
+
+test("configured comparison state survives history, detail navigation, and sharing", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: "http://127.0.0.1:4173",
+  });
+  await page.goto("/?strategy=value_full&price=10#rankings");
+
+  await expect(page.getByRole("radio", { name: /Overall value/ })).toBeChecked();
+  await expect(page.getByRole("button", { name: "$10", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.reload();
+  await expect(page.getByRole("radio", { name: /Overall value/ })).toBeChecked();
+
+  await page.getByRole("radio", { name: /Money back/ }).click();
+  await expect(page).toHaveURL(/strategy=money_back_exact&price=10/);
+  await page.goBack();
+  await expect(page.getByRole("radio", { name: /Overall value/ })).toBeChecked();
+  await expect(page).toHaveURL(/strategy=value_full&price=10/);
+  await page.goForward();
+  await expect(page.getByRole("radio", { name: /Money back/ })).toBeChecked();
+  await page.goBack();
+
+  const lakefront = page.getByRole("link", { name: "View details for Lakefront 10X" }).first();
+  await expect(lakefront).toHaveAttribute(
+    "href",
+    "/games/102?strategy=value_full&price=10",
+  );
+  await lakefront.click();
+  await expect(page).toHaveURL(/\/games\/102\?strategy=value_full&price=10$/);
+  await expect(page.getByText("Returns to Overall value · $10 tickets")).toBeVisible();
+  await expect(page.locator(".site-header nav a").filter({ hasText: "Compare games" })).toHaveAttribute(
+    "href",
+    "/?strategy=value_full&price=10#rankings",
+  );
+
+  await page.getByRole("button", { name: "Copy this game view" }).click();
+  await expect(page.getByText("Game link copied.")).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    "http://127.0.0.1:4173/games/102?strategy=value_full&price=10",
+  );
+
+  await page.getByRole("link", { name: "Back to comparison" }).click();
+  await expect(page).toHaveURL(/\?strategy=value_full&price=10#rankings$/);
+  await expect(page.getByRole("radio", { name: /Overall value/ })).toBeChecked();
+  await expect(page.getByRole("button", { name: "$10", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  await page.getByRole("button", { name: "Copy this view" }).click();
+  await expect(page.getByText("Comparison link copied.")).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    "http://127.0.0.1:4173/?strategy=value_full&price=10#rankings",
+  );
+});
+
+test("invalid public state falls back and copies a canonical default link", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: "http://127.0.0.1:4173",
+  });
+  await page.goto("/?strategy=secret_score&price=-10&private=discard-me");
+
+  await expect(page.getByRole("radio", { name: /Practical value/ })).toBeChecked();
+  await expect(page.getByRole("button", { name: "All", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.getByRole("button", { name: "Copy this view" }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    "http://127.0.0.1:4173/#rankings",
+  );
 });
 
 test("paused comparison uses player language and hides internal reason codes", async ({ page }) => {

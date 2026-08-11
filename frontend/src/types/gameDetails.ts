@@ -1,5 +1,20 @@
 import type { ConfidenceLabel } from "./rankings";
 
+export const OUTCOME_KEYS = [
+  "money_back_exact",
+  "profit_ex_top",
+  "moderate_5x",
+  "moderate_10x",
+  "jackpot_top_odds",
+] as const;
+
+export type OutcomeKey = (typeof OUTCOME_KEYS)[number];
+export type OutcomeMetricStatus =
+  | "complete"
+  | "partial"
+  | "unavailable"
+  | "not_applicable";
+
 export type AdjustmentStatus =
   | "applied"
   | "reported_only"
@@ -23,6 +38,13 @@ export interface GamePrizeTier {
   status: TierStatus;
 }
 
+export interface GameOutcomeMetric {
+  outcomeKey: OutcomeKey;
+  probability: number | null;
+  oneIn: number | null;
+  metricStatus: OutcomeMetricStatus;
+}
+
 export interface GameDetail {
   generatedAt: string;
   sourceObservedAt: string;
@@ -44,5 +66,6 @@ export interface GameDetail {
   topPrizeAmount: number | null;
   topPrizesOriginal: number | null;
   topPrizesRemaining: number | null;
+  outcomes: GameOutcomeMetric[];
   tiers: GamePrizeTier[];
 }

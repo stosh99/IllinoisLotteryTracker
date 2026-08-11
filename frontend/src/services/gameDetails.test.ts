@@ -40,4 +40,13 @@ describe("game-detail response validation", () => {
     const invalid = { ...gameDetailFixture, tiers: [] };
     expect(() => assertGameDetail(invalid)).toThrow(/tiers must not be empty/i);
   });
+
+  it("rejects duplicate or missing outcome metrics", () => {
+    const invalid = structuredClone(gameDetailFixture);
+    invalid.outcomes[1] = { ...invalid.outcomes[0]! };
+
+    expect(() => assertGameDetail(invalid)).toThrow(
+      /each supported outcome exactly once/i,
+    );
+  });
 });

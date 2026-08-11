@@ -1,9 +1,13 @@
 import type {
   AdjustmentStatus,
   GameDetail,
+  GameOutcomeMetric,
   GamePrizeTier,
+  OutcomeKey,
+  OutcomeMetricStatus,
   TierStatus,
 } from "../types/gameDetails";
+import { OUTCOME_KEYS } from "../types/gameDetails";
 import type { ConfidenceLabel } from "../types/rankings";
 
 const adjustmentStatuses = new Set<AdjustmentStatus>([
@@ -17,6 +21,13 @@ const confidenceLabels = new Set<ConfidenceLabel>([
   "low",
   "moderate",
   "high",
+]);
+const outcomeKeys = new Set<OutcomeKey>(OUTCOME_KEYS);
+const outcomeMetricStatuses = new Set<OutcomeMetricStatus>([
+  "complete",
+  "partial",
+  "unavailable",
+  "not_applicable",
 ]);
 
 export async function loadGameDetail(
@@ -45,7 +56,11 @@ export function assertGameDetail(document: unknown): GameDetail {
   const tiers = requiredArray(document, "tiers").map((tier, index) =>
     parseTier(tier, `tiers[${index}]`),
   );
+  const outcomes = requiredArray(document, "outcomes").map((outcome, index) =>
+    parseOutcome(outcome, `outcomes[${index}]`),
+  );
   if (tiers.length === 0) throw contractError("tiers", "must not be empty");
+  assertCompleteOutcomeSet(outcomes);
   return {
     generatedAt: requiredTimestamp(document, "generatedAt"),
     sourceObservedAt: requiredTimestamp(document, "sourceObservedAt"),
@@ -72,8 +87,36 @@ export function assertGameDetail(document: unknown): GameDetail {
     topPrizeAmount: optionalNumber(document, "topPrizeAmount", 0),
     topPrizesOriginal: optionalInteger(document, "topPrizesOriginal", 0),
     topPrizesRemaining: optionalInteger(document, "topPrizesRemaining", 0),
+    outcomes,
     tiers,
   };
+}
+
+function parseOutcome(document: unknown, path: string): GameOutcomeMetric {
+  if (!isObject(document)) throw contractError(path, "must be an object");
+  return {
+    outcomeKey: requiredEnum(document, "outcomeKey", outcomeKeys, path),
+    probability: optionalNumber(document, "probability", 0, true, path),
+    oneIn: optionalNumber(document, "oneIn", 0, false, path),
+    metricStatus: requiredEnum(
+      document,
+      "metricStatus",
+      outcomeMetricStatuses,
+      path,
+    ),
+  };
+}
+
+function assertCompleteOutcomeSet(outcomes: GameOutcomeMetric[]): void {
+  const observed = new Set(outcomes.map(({ outcomeKey }) => outcomeKey));
+  if (outcomes.length !== OUTCOME_KEYS.length || observed.size !== OUTCOME_KEYS.length) {
+    throw contractError("outcomes", "must contain each supported outcome exactly once");
+  }
+  for (const key of OUTCOME_KEYS) {
+    if (!observed.has(key)) {
+      throw contractError("outcomes", `is missing ${key}`);
+    }
+  }
 }
 
 function parseTier(document: unknown, path: string): GamePrizeTier {

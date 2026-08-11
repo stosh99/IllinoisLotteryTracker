@@ -35,13 +35,13 @@ for unrelated redesign. See the
 | U-12 | Plain-language data states | Partially implemented | Now — build |
 | U-13 | Glossary, methodology, and worked example | Partially implemented | Now — build |
 | U-14 | “Why this ranks here” | Implemented — evaluate | Milestone 2 complete — observe later |
-| U-15 | Outcome ladder and chance to profit | Partially implemented | Next |
+| U-15 | Outcome ladder and chance to profit | Implemented — evaluate | Milestone 4 complete — owner review next |
 | U-16 | Jackpot-dependence explanation | Implemented — evaluate | Milestone 2 complete — observe later |
 | U-17 | Result trends and change explanation | Candidate | Next |
 | U-18 | Game discovery essentials | Partially implemented | Next |
 | U-19 | Side-by-side comparison | Candidate | Later |
 | U-20 | Watchlist and notifications | Dependency-blocked | Dependency-blocked |
-| U-21 | Durable/shareable comparison state | Partially implemented | Next |
+| U-21 | Durable/shareable comparison state | Implemented — evaluate | Milestone 3 complete — observe later |
 | U-22 | Accessibility and narrow-screen acceptance | Partially implemented | Now — acceptance layer |
 | U-23 | Authentication/account comprehension | Dependency-blocked | Dependency-blocked |
 | U-24 | Personal ticket entry and results | Dependency-blocked | Dependency-blocked |
@@ -244,7 +244,7 @@ for unrelated redesign. See the
 
 ### U-15 — Outcome ladder and “chance to come out ahead”
 
-- **State:** Partially implemented
+- **State:** Implemented — evaluate
 - **Problem:** Many players care more about a recognizable outcome than an
   abstract long-run return.
 - **Candidate behavior:** Present a small, carefully defined ladder such as money
@@ -252,6 +252,12 @@ for unrelated redesign. See the
   outcomes are independent or additive.
 - **Foundation:** Exact money-back and 10x strategies are public; the backend also
   calculates profit excluding the top prize and contains a 5x measure.
+- **Current behavior:** Detail pages show all five first-pass outcomes with
+  one-in-X and percent values, nested-threshold guidance, explicit unavailable
+  states, and a separate jackpot lane. The comparison adds the existing
+  non-jackpot-profit strategy as “Come out ahead.” See the
+  [milestone 4 specification](TRACK_1_MILESTONE_4_SPEC.md) and
+  [evaluation](TRACK_1_MILESTONE_4_EVALUATION.md).
 - **Evaluate:** Test whether users can distinguish “at least,” “exactly,” and
   “excluding the top prize,” and whether the ladder improves goal selection.
 - **Competitive link:** D-03
@@ -330,7 +336,7 @@ for unrelated redesign. See the
 
 ### U-21 — Durable and shareable comparison state
 
-- **State:** Partially implemented
+- **State:** Implemented — evaluate
 - **Problem:** Losing strategy, price, or game context on navigation makes testing,
   comparison, sharing, and return visits harder.
 - **Candidate behavior:** Encode stable public choices in the URL where practical,

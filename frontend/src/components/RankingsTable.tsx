@@ -5,7 +5,9 @@ import {
   getSupportingEv,
 } from "../lib/strategies";
 import type { RankingRecord } from "../types/rankings";
+import type { RankingViewState } from "../types/rankings";
 import { explainRank } from "../lib/decisionSupport";
+import { gameDetailHref } from "../lib/urlState";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ConfidenceBadge,
@@ -19,12 +21,14 @@ interface RankingsTableProps {
   rankings: RankingRecord[];
   maxMetric: number;
   filteredByPrice: boolean;
+  viewState: RankingViewState;
 }
 
 export function RankingsTable({
   rankings,
   maxMetric,
   filteredByPrice,
+  viewState,
 }: RankingsTableProps) {
   const navigate = useNavigate();
   const evHeader = rankings[0] ? getSupportingEv(rankings[0]).label : "Estimated return";
@@ -59,7 +63,7 @@ export function RankingsTable({
                 key={record.gameId}
                 onClick={(event) => {
                   if (!(event.target as HTMLElement).closest("a")) {
-                    navigate(`/games/${record.gameId}`);
+                    navigate(gameDetailHref(record.gameId, viewState));
                   }
                 }}
               >
@@ -72,7 +76,7 @@ export function RankingsTable({
                   <Link
                     aria-label={`View details for ${record.gameName}`}
                     className="ranking-table__game-link"
-                    to={`/games/${record.gameId}`}
+                    to={gameDetailHref(record.gameId, viewState)}
                   >
                     <strong>{record.gameName}</strong>
                     <small>Game {record.gameNumber} · View prize tiers →</small>

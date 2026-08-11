@@ -42,6 +42,16 @@ export const PRIMARY_STRATEGIES: readonly StrategyDefinition[] = [
     kind: "probability",
   },
   {
+    key: "profit_ex_top",
+    shortLabel: "Come out ahead",
+    label: "Chance of a non-jackpot profit",
+    question: "Where is a non-jackpot profit most likely?",
+    explanation:
+      "Compares the estimated chance of winning more than the ticket price, excluding the top-prize tier.",
+    metricLabel: "Estimated chance of a profit, excluding top prize",
+    kind: "probability",
+  },
+  {
     key: "moderate_10x",
     shortLabel: "10× upside",
     label: "Moderate upside without the top prize",

@@ -45,3 +45,42 @@ export function serializeViewState(state: RankingViewState): string {
   }
   return params.toString();
 }
+
+export function comparisonHref(
+  state: RankingViewState,
+  hash = "#rankings",
+): string {
+  const search = serializeViewState(state);
+  return `/${search ? `?${search}` : ""}${normalizeHash(hash)}`;
+}
+
+export function gameDetailHref(gameId: number, state: RankingViewState): string {
+  if (!Number.isInteger(gameId) || gameId <= 0) {
+    throw new Error("Game detail links require a positive integer game id.");
+  }
+  const search = serializeViewState(state);
+  return `/games/${gameId}${search ? `?${search}` : ""}`;
+}
+
+export function absolutePublicUrl(href: string, origin: string): string {
+  const base = new URL(origin);
+  if (!/^https?:$/.test(base.protocol)) {
+    throw new Error("Public links require an HTTP origin.");
+  }
+  return new URL(href, `${base.origin}/`).toString();
+}
+
+export function viewStateLabel(state: RankingViewState): string {
+  const strategy = PRIMARY_STRATEGIES.find(({ key }) => key === state.strategy);
+  const strategyLabel = strategy?.shortLabel ?? PRIMARY_STRATEGIES[0]!.shortLabel;
+  const priceLabel =
+    state.ticketPrice === "all"
+      ? "all ticket prices"
+      : `$${state.ticketPrice} tickets`;
+  return `${strategyLabel} · ${priceLabel}`;
+}
+
+function normalizeHash(hash: string): string {
+  if (!hash) return "";
+  return hash.startsWith("#") ? hash : `#${hash}`;
+}

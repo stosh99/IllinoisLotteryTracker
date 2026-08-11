@@ -12,6 +12,14 @@ from sqlalchemy.engine import Connection, RowMapping
 ConfidenceLabel = Literal["lumpy", "low", "moderate", "high"]
 AdjustmentStatus = Literal["applied", "reported_only", "reference_unavailable"]
 TierStatus = Literal["available", "depleted", "unavailable"]
+MetricStatus = Literal["complete", "partial", "unavailable", "not_applicable"]
+OutcomeKey = Literal[
+    "money_back_exact",
+    "profit_ex_top",
+    "moderate_5x",
+    "moderate_10x",
+    "jackpot_top_odds",
+]
 
 
 def _to_camel(value: str) -> str:
@@ -43,6 +51,13 @@ class GamePrizeTierResponse(_ApiModel):
     status: TierStatus
 
 
+class GameOutcomeResponse(_ApiModel):
+    outcome_key: OutcomeKey
+    probability: float | None
+    one_in: float | None
+    metric_status: MetricStatus
+
+
 class GameDetailResponse(_ApiModel):
     generated_at: datetime
     source_observed_at: datetime
@@ -64,6 +79,7 @@ class GameDetailResponse(_ApiModel):
     top_prize_amount: float | None
     top_prizes_original: int | None
     top_prizes_remaining: int | None
+    outcomes: list[GameOutcomeResponse]
     tiers: list[GamePrizeTierResponse]
 
 
@@ -105,7 +121,18 @@ GAME_QUERY = text(
       strategy.estimated_ev_ex_top,
       strategy.top_prize_amount,
       strategy.top_prizes_original_reported AS top_prizes_original,
-      strategy.top_prizes_remaining_reported AS top_prizes_remaining
+      strategy.top_prizes_remaining_reported AS top_prizes_remaining,
+      strategy.p_break_even_exact,
+      strategy.one_in_break_even_exact,
+      strategy.p_strict_profit_ex_top,
+      strategy.one_in_strict_profit_ex_top,
+      strategy.p_5x_or_better_ex_top,
+      strategy.one_in_5x_or_better_ex_top,
+      strategy.p_10x_or_better_ex_top,
+      strategy.one_in_10x_or_better_ex_top,
+      strategy.p_top_prize_estimated,
+      strategy.one_in_top_prize_estimated,
+      strategy.metric_statuses
     FROM recommendation_current_games_v game
     JOIN current_game_snapshots_v snapshot
       ON snapshot.game_id = game.id
@@ -231,6 +258,7 @@ def read_current_game_detail_from_connection(
             top_prize_amount=_optional_float(game["top_prize_amount"]),
             top_prizes_original=game["top_prizes_original"],
             top_prizes_remaining=game["top_prizes_remaining"],
+            outcomes=_outcome_responses(game),
             tiers=tiers,
         )
     except GameDetailReadError:
@@ -266,6 +294,33 @@ def _tier_response(row: RowMapping) -> GamePrizeTierResponse:
         confidence_label=row["confidence_label"],
         status=row["status"],
     )
+
+
+_OUTCOME_FIELDS: tuple[tuple[OutcomeKey, str, str], ...] = (
+    ("money_back_exact", "p_break_even_exact", "one_in_break_even_exact"),
+    ("profit_ex_top", "p_strict_profit_ex_top", "one_in_strict_profit_ex_top"),
+    ("moderate_5x", "p_5x_or_better_ex_top", "one_in_5x_or_better_ex_top"),
+    ("moderate_10x", "p_10x_or_better_ex_top", "one_in_10x_or_better_ex_top"),
+    ("jackpot_top_odds", "p_top_prize_estimated", "one_in_top_prize_estimated"),
+)
+
+
+def _outcome_responses(row: RowMapping) -> list[GameOutcomeResponse]:
+    statuses = row["metric_statuses"]
+    if not isinstance(statuses, dict):
+        raise GameDetailReadError("Game outcome statuses are invalid")
+    outcomes: list[GameOutcomeResponse] = []
+    for outcome_key, probability_field, one_in_field in _OUTCOME_FIELDS:
+        metric_status = statuses.get(outcome_key)
+        outcomes.append(
+            GameOutcomeResponse(
+                outcome_key=outcome_key,
+                probability=_optional_float(row[probability_field]),
+                one_in=_optional_float(row[one_in_field]),
+                metric_status=metric_status,
+            )
+        )
+    return outcomes
 
 
 def _optional_float(value: object) -> float | None:

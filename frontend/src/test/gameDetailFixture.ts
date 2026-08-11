@@ -21,6 +21,38 @@ export const gameDetailFixture: GameDetail = {
   topPrizeAmount: 500_000,
   topPrizesOriginal: 5,
   topPrizesRemaining: 2,
+  outcomes: [
+    {
+      outcomeKey: "money_back_exact",
+      probability: 0.111,
+      oneIn: 9.009,
+      metricStatus: "complete",
+    },
+    {
+      outcomeKey: "profit_ex_top",
+      probability: 0.08547,
+      oneIn: 11.7,
+      metricStatus: "complete",
+    },
+    {
+      outcomeKey: "moderate_5x",
+      probability: 0.041496,
+      oneIn: 24.1,
+      metricStatus: "complete",
+    },
+    {
+      outcomeKey: "moderate_10x",
+      probability: 0.0228,
+      oneIn: 43.86,
+      metricStatus: "complete",
+    },
+    {
+      outcomeKey: "jackpot_top_odds",
+      probability: 0.000000888889,
+      oneIn: 1_124_999.75,
+      metricStatus: "complete",
+    },
+  ],
   tiers: [
     {
       prizeAmount: 500_000,

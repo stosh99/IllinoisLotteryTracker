@@ -86,6 +86,23 @@ def _game_row() -> dict[str, object]:
         "top_prize_amount": Decimal("500000"),
         "top_prizes_original": 5,
         "top_prizes_remaining": 2,
+        "p_break_even_exact": Decimal("0.12"),
+        "one_in_break_even_exact": Decimal("8.333333"),
+        "p_strict_profit_ex_top": Decimal("0.08"),
+        "one_in_strict_profit_ex_top": Decimal("12.5"),
+        "p_5x_or_better_ex_top": Decimal("0.025"),
+        "one_in_5x_or_better_ex_top": Decimal("40"),
+        "p_10x_or_better_ex_top": Decimal("0.01"),
+        "one_in_10x_or_better_ex_top": Decimal("100"),
+        "p_top_prize_estimated": Decimal("0.000000888889"),
+        "one_in_top_prize_estimated": Decimal("1124999.75"),
+        "metric_statuses": {
+            "money_back_exact": "complete",
+            "profit_ex_top": "complete",
+            "moderate_5x": "complete",
+            "moderate_10x": "complete",
+            "jackpot_top_odds": "complete",
+        },
     }
 
 
@@ -121,6 +138,38 @@ def test_current_game_detail_maps_real_tier_fields_to_frontend_contract() -> Non
     assert payload["gameId"] == 42
     assert payload["gameName"] == "Example game"
     assert payload["estimatedSoldTickets"] == 2750000.5
+    assert payload["outcomes"] == [
+        {
+            "outcomeKey": "money_back_exact",
+            "probability": 0.12,
+            "oneIn": 8.333333,
+            "metricStatus": "complete",
+        },
+        {
+            "outcomeKey": "profit_ex_top",
+            "probability": 0.08,
+            "oneIn": 12.5,
+            "metricStatus": "complete",
+        },
+        {
+            "outcomeKey": "moderate_5x",
+            "probability": 0.025,
+            "oneIn": 40.0,
+            "metricStatus": "complete",
+        },
+        {
+            "outcomeKey": "moderate_10x",
+            "probability": 0.01,
+            "oneIn": 100.0,
+            "metricStatus": "complete",
+        },
+        {
+            "outcomeKey": "jackpot_top_odds",
+            "probability": 8.88889e-07,
+            "oneIn": 1124999.75,
+            "metricStatus": "complete",
+        },
+    ]
     assert payload["tiers"] == [
         {
             "prizeAmount": 1000.0,
