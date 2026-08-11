@@ -1,9 +1,10 @@
-"""Fetch the Illinois Lottery unpaid-prizes page and write a raw snapshot to disk.
+"""Fetch Illinois Lottery source pages and write raw snapshots to disk.
 
-This module deliberately does no parsing — it captures the source as-is. It tries
-``requests`` first with realistic browser headers; if the origin responds with
-HTTP 403 (a common bot-mitigation signal), it falls back to a headless Chromium
-fetch via Playwright.
+This module deliberately does no parsing -- it captures the source as-is. By
+default it tries ``requests`` first and falls back to Playwright when the origin
+returns HTTP 403 or a successful-looking Cloudflare challenge page. Operators
+can explicitly supply :class:`PersistentChromeOptions` to use the machine's
+installed Chrome with a dedicated persistent profile.
 """
 
 from __future__ import annotations
@@ -12,10 +13,11 @@ import hashlib
 import os
 import re
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import requests
 
@@ -25,6 +27,7 @@ from .paths import dated_raw_dir, raw_data_dir
 UNPAID_PRIZES_URL = (
     "https://www.illinoislottery.com/about-the-games/unpaid-instant-games-prizes"
 )
+UNPAID_PRIZES_WAIT_SELECTOR = ".unclaimed-prizes-table__row"
 
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -33,9 +36,34 @@ DEFAULT_USER_AGENT = (
 DEFAULT_REFERER = "https://www.illinoislottery.com/"
 DEFAULT_TIMEOUT_SECONDS = 30
 DEFAULT_PLAYWRIGHT_TIMEOUT_MS = 45_000
+DEFAULT_CHROME_EXECUTABLE = "/usr/bin/google-chrome"
 FILENAME_TIMESTAMP_FORMAT = "%Y%m%dT%H%M%SZ"
 
-FetchMethod = Literal["requests", "playwright"]
+FetchMethod = Literal["requests", "playwright", "chrome"]
+
+CLOUDFLARE_CHALLENGE_MARKERS: tuple[bytes, ...] = (
+    b"cf-browser-verification",
+    b"just a moment...",
+    b"challenge-form",
+    b"attention required! | cloudflare",
+    b"/cdn-cgi/challenge-platform/",
+)
+
+
+@dataclass(frozen=True)
+class PersistentChromeOptions:
+    """Launch installed Chrome with an isolated, reusable browser profile.
+
+    ``profile_dir`` must be dedicated to the collector. It must never point at
+    a person's normal Chrome profile, because Chrome does not safely support
+    concurrent access to a profile and that would expose unrelated browser
+    history/cookies to the collection process.
+    """
+
+    profile_dir: Path
+    executable_path: str = DEFAULT_CHROME_EXECUTABLE
+    headless: bool = False
+    force_x11: bool = False
 
 
 @dataclass(frozen=True)
@@ -54,6 +82,15 @@ class _FetchOutcome:
     content: bytes
     content_type: str | None
     fetch_method: FetchMethod
+
+
+def cloudflare_challenge_marker(content: bytes) -> str | None:
+    """Return the first known Cloudflare challenge marker in ``content``."""
+    lowered = content.lower()
+    for marker in CLOUDFLARE_CHALLENGE_MARKERS:
+        if marker in lowered:
+            return marker.decode("ascii")
+    return None
 
 
 def _browser_headers(user_agent: str) -> dict[str, str]:
@@ -94,49 +131,119 @@ def _fetch_with_requests(
     )
 
 
+def _prepare_persistent_chrome(options: PersistentChromeOptions) -> tuple[Path, Path]:
+    executable_path = Path(options.executable_path).expanduser().resolve()
+    if not executable_path.is_file() or not os.access(executable_path, os.X_OK):
+        raise RuntimeError(
+            f"Chrome executable is missing or not executable: {executable_path}"
+        )
+
+    profile_dir = options.profile_dir.expanduser().resolve()
+    if profile_dir.exists() and not profile_dir.is_dir():
+        raise RuntimeError(f"Chrome profile path is not a directory: {profile_dir}")
+    profile_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    profile_dir.chmod(0o700)
+    return executable_path, profile_dir
+
+
+@contextmanager
+def _playwright_context(
+    playwright: Any,
+    *,
+    user_agent: str,
+    chrome_options: PersistentChromeOptions | None,
+):
+    """Yield ``(BrowserContext, fetch_method)`` and close it safely."""
+    if chrome_options is not None:
+        executable_path, profile_dir = _prepare_persistent_chrome(chrome_options)
+        launch_kwargs: dict[str, Any] = {
+            "user_data_dir": str(profile_dir),
+            "executable_path": str(executable_path),
+            "headless": chrome_options.headless,
+            "locale": "en-US",
+        }
+        if chrome_options.force_x11:
+            launch_kwargs["args"] = ["--ozone-platform=x11"]
+        context = playwright.chromium.launch_persistent_context(**launch_kwargs)
+        try:
+            yield context, "chrome"
+        finally:
+            context.close()
+        return
+
+    browser = playwright.chromium.launch(headless=True)
+    try:
+        context = browser.new_context(
+            user_agent=user_agent,
+            extra_http_headers={
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": DEFAULT_REFERER,
+            },
+        )
+        yield context, "playwright"
+    finally:
+        browser.close()
+
+
 def _fetch_with_playwright(
     url: str,
     *,
     user_agent: str,
     timeout_ms: int,
     wait_selector: str | None = None,
+    chrome_options: PersistentChromeOptions | None = None,
 ) -> _FetchOutcome:
     # Lazy import: the rest of the package must work without playwright installed.
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        try:
-            context = browser.new_context(
-                user_agent=user_agent,
-                extra_http_headers={
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Referer": DEFAULT_REFERER,
-                },
-            )
-            page = context.new_page()
+        with _playwright_context(
+            p, user_agent=user_agent, chrome_options=chrome_options
+        ) as (context, fetch_method):
+            page = context.pages[0] if context.pages else context.new_page()
             page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
             if wait_selector:
                 try:
                     page.wait_for_selector(wait_selector, timeout=timeout_ms)
-                except Exception:
+                except PlaywrightTimeoutError:
+                    # Persist what loaded so downstream validation can identify
+                    # a challenge page or a changed source layout precisely.
                     pass
             else:
                 try:
                     page.wait_for_load_state("networkidle", timeout=timeout_ms)
-                except Exception:
+                except PlaywrightTimeoutError:
                     # networkidle never settles on some pages with long-lived
                     # analytics pings — accept domcontentloaded as good enough.
                     pass
             html = page.content()
-        finally:
-            browser.close()
 
     return _FetchOutcome(
         content=html.encode("utf-8"),
         content_type="text/html; charset=utf-8",
-        fetch_method="playwright",
+        fetch_method=fetch_method,
     )
+
+
+def _fetch_with_browser(
+    url: str,
+    *,
+    user_agent: str,
+    timeout_ms: int,
+    wait_selector: str | None,
+    chrome_options: PersistentChromeOptions | None,
+) -> _FetchOutcome:
+    kwargs: dict[str, Any] = {
+        "user_agent": user_agent,
+        "timeout_ms": timeout_ms,
+        "wait_selector": wait_selector,
+    }
+    # Preserve the original call shape for compatibility with lightweight
+    # monkeypatched collectors while making persistent Chrome opt-in.
+    if chrome_options is not None:
+        kwargs["chrome_options"] = chrome_options
+    return _fetch_with_playwright(url, **kwargs)
 
 
 DEFAULT_FILENAME_PREFIX = "unpaid-instant-games-prizes"
@@ -208,26 +315,52 @@ def collect_raw_snapshot(
     session: requests.Session | None = None,
     filename_prefix: str = DEFAULT_FILENAME_PREFIX,
     wait_selector: str | None = None,
+    chrome_options: PersistentChromeOptions | None = None,
+    requests_first: bool = True,
 ) -> RawCollectionResult:
     """Fetch ``url`` and persist the raw response body under data/raw/YYYY-MM-DD/.
 
-    Tries ``requests`` first; on HTTP 403, falls back to Playwright.
+    Tries ``requests`` first; on HTTP 403 or a Cloudflare challenge response,
+    falls back to Playwright. Set ``requests_first=False`` to exercise the
+    browser path directly. When ``chrome_options`` is supplied, that browser
+    path uses installed Chrome and its dedicated persistent profile.
     ``filename_prefix`` controls the saved filename stem.
     ``wait_selector``: CSS selector to wait for after domcontentloaded (Playwright path only).
     """
     settings = settings or get_settings()
     captured_at = datetime.now(UTC)
 
-    try:
-        outcome = _fetch_with_requests(
-            url, user_agent=user_agent, timeout=timeout, session=session
-        )
-    except requests.HTTPError as exc:
-        if not _is_forbidden(exc):
-            raise
-        outcome = _fetch_with_playwright(
-            url, user_agent=user_agent, timeout_ms=playwright_timeout_ms,
+    if requests_first:
+        try:
+            outcome = _fetch_with_requests(
+                url, user_agent=user_agent, timeout=timeout, session=session
+            )
+        except requests.HTTPError as exc:
+            if not _is_forbidden(exc):
+                raise
+            outcome = _fetch_with_browser(
+                url,
+                user_agent=user_agent,
+                timeout_ms=playwright_timeout_ms,
+                wait_selector=wait_selector,
+                chrome_options=chrome_options,
+            )
+        else:
+            if cloudflare_challenge_marker(outcome.content) is not None:
+                outcome = _fetch_with_browser(
+                    url,
+                    user_agent=user_agent,
+                    timeout_ms=playwright_timeout_ms,
+                    wait_selector=wait_selector,
+                    chrome_options=chrome_options,
+                )
+    else:
+        outcome = _fetch_with_browser(
+            url,
+            user_agent=user_agent,
+            timeout_ms=playwright_timeout_ms,
             wait_selector=wait_selector,
+            chrome_options=chrome_options,
         )
 
     target_path, sha256 = _persist_content_addressed(
@@ -274,23 +407,19 @@ def _fetch_pages_batch_with_playwright(
     wait_selector: str | None,
     settings: Settings,
     on_progress: Callable[[int, int, str], None] | None,
+    chrome_options: PersistentChromeOptions | None = None,
 ) -> list[BatchPageResult]:
     # Lazy import so the package works without playwright installed.
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
     from playwright.sync_api import sync_playwright
 
     results: list[BatchPageResult] = []
     total = len(url_prefix_pairs)
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        try:
-            ctx = browser.new_context(
-                user_agent=user_agent,
-                extra_http_headers={
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Referer": DEFAULT_REFERER,
-                },
-            )
+        with _playwright_context(
+            p, user_agent=user_agent, chrome_options=chrome_options
+        ) as (ctx, fetch_method):
             for i, (url, prefix) in enumerate(url_prefix_pairs):
                 if on_progress:
                     on_progress(i + 1, total, url)
@@ -303,7 +432,7 @@ def _fetch_pages_batch_with_playwright(
                     if wait_selector:
                         try:
                             page.wait_for_selector(wait_selector, timeout=timeout_ms)
-                        except Exception:
+                        except PlaywrightTimeoutError:
                             # Accept whatever loaded — parser will report missing fields.
                             pass
                     html = page.content()
@@ -330,10 +459,8 @@ def _fetch_pages_batch_with_playwright(
                 results.append(BatchPageResult(
                     url=url, file_path=str(target_path), sha256=sha256,
                     captured_at=captured_at, content_type="text/html; charset=utf-8",
-                    bytes_written=len(content), fetch_method="playwright", error=None,
+                    bytes_written=len(content), fetch_method=fetch_method, error=None,
                 ))
-        finally:
-            browser.close()
 
     return results
 
@@ -346,6 +473,7 @@ def collect_pages_batch(
     playwright_timeout_ms: int = DEFAULT_PLAYWRIGHT_TIMEOUT_MS,
     wait_selector: str | None = None,
     on_progress: Callable[[int, int, str], None] | None = None,
+    chrome_options: PersistentChromeOptions | None = None,
 ) -> list[BatchPageResult]:
     """Fetch multiple URLs using a single Playwright browser, saving each to disk.
 
@@ -356,11 +484,13 @@ def collect_pages_batch(
     Returns one ``BatchPageResult`` per input URL in the same order.
     Failed pages have ``error`` set and ``file_path=None``.
     """
-    return _fetch_pages_batch_with_playwright(
-        url_prefix_pairs,
-        user_agent=user_agent,
-        timeout_ms=playwright_timeout_ms,
-        wait_selector=wait_selector,
-        settings=settings or get_settings(),
-        on_progress=on_progress,
-    )
+    kwargs: dict[str, Any] = {
+        "user_agent": user_agent,
+        "timeout_ms": playwright_timeout_ms,
+        "wait_selector": wait_selector,
+        "settings": settings or get_settings(),
+        "on_progress": on_progress,
+    }
+    if chrome_options is not None:
+        kwargs["chrome_options"] = chrome_options
+    return _fetch_pages_batch_with_playwright(url_prefix_pairs, **kwargs)

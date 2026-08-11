@@ -27,7 +27,11 @@ from .models import (
     RawSourceSnapshot,
     ScrapeRun,
 )
-from .raw_collector import RawCollectionResult, collect_raw_snapshot
+from .raw_collector import (
+    PersistentChromeOptions,
+    RawCollectionResult,
+    collect_raw_snapshot,
+)
 from .source_quality import chicago_source_date
 
 HUB_URL = "https://www.illinoislottery.com/games-hub/instant-tickets"
@@ -87,6 +91,7 @@ def collect_catalog_pages(
     settings: Settings | None = None,
     collect_raw_snapshot_fn=collect_raw_snapshot,
     progress=None,
+    chrome_options: PersistentChromeOptions | None = None,
 ) -> list[CatalogPageCapture]:
     settings = settings or get_settings()
     captures: list[CatalogPageCapture] = []
@@ -98,12 +103,15 @@ def collect_catalog_pages(
         page_number += 1
         if progress:
             progress(f"Catalog page {page_number}: {current_url}")
-        collection = collect_raw_snapshot_fn(
-            url=current_url,
-            settings=settings,
-            filename_prefix=f"instant-ticket-hub-page-{page_number:03d}",
-            wait_selector=HUB_WAIT_SELECTOR,
-        )
+        collection_kwargs = {
+            "url": current_url,
+            "settings": settings,
+            "filename_prefix": f"instant-ticket-hub-page-{page_number:03d}",
+            "wait_selector": HUB_WAIT_SELECTOR,
+        }
+        if chrome_options is not None:
+            collection_kwargs["chrome_options"] = chrome_options
+        collection = collect_raw_snapshot_fn(**collection_kwargs)
         discovery = parse_instant_ticket_hub_html(
             Path(collection.file_path), source_url=current_url
         )

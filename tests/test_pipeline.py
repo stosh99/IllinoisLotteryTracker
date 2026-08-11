@@ -90,7 +90,7 @@ def test_source_commit_survives_separate_analytics_failure(tmp_path: Path):
     result = run_analytics_stage(
         factory,
         source_run_id=source_id,
-        compute_regular_fn=fail_analytics,
+        compute_fn=fail_analytics,
     )
 
     with factory() as db:
@@ -98,7 +98,6 @@ def test_source_commit_survives_separate_analytics_failure(tmp_path: Path):
         analytics = db.get(AnalyticsRun, result.analytics_run_id)
         assert source is not None and source.status == "success" and source.is_complete
         assert analytics is not None and analytics.status == "failed"
-        assert analytics.publishable is False
         assert analytics.as_of_scrape_run_id == source_id
 
 # ---------------------------------------------------------------------------

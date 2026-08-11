@@ -20,17 +20,13 @@ from sqlalchemy import Engine, distinct, exists, func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from .analytics.persistence import acquire_analytics_run, mark_analytics_run_failed
-from .analytics.service import (
-    calibrate_claim_lag,
-    compute_regular_analytics,
-    finalize_high_tier_analytics,
-)
+from .analytics.service import compute_analytics
 from .importer import import_unpaid_prizes_parse_result
 from .lifecycle import synchronize_active_games
 from .metrics import compute_snapshot_metrics
 from .models import Game, GameSnapshot, PrizeTierSnapshot, RawSourceSnapshot, ScrapeRun
 from .parser import parse_html
-from .raw_collector import UNPAID_PRIZES_URL
+from .raw_collector import UNPAID_PRIZES_URL, cloudflare_challenge_marker
 from .source_quality import (
     CHICAGO_TIME_ZONE,
     assess_parse_result,
@@ -103,13 +99,6 @@ def _parse_file_capture_time(raw_path: Path) -> datetime:
 # Validation
 # ---------------------------------------------------------------------------
 
-_CLOUDFLARE_MARKERS: tuple[bytes, ...] = (
-    b"cf-browser-verification",
-    b"Just a moment...",
-    b"challenge-form",
-    b"Attention Required! | Cloudflare",
-)
-
 _CONTENT_MARKER = b"unclaimed-prizes-table__row"
 
 
@@ -145,11 +134,11 @@ def validate_unpaid_prizes_html(content: bytes) -> None:
     1. Cloudflare challenge markers → rejected immediately.
     2. Absence of the prize table class → rejected as wrong page.
     """
-    for marker in _CLOUDFLARE_MARKERS:
-        if marker in content:
-            raise ValidationError(
-                f"Cloudflare challenge detected (marker: {marker.decode()!r})"
-            )
+    marker = cloudflare_challenge_marker(content)
+    if marker is not None:
+        raise ValidationError(
+            f"Cloudflare challenge detected (marker: {marker!r})"
+        )
     if _CONTENT_MARKER not in content:
         raise ValidationError(
             "unpaid-prizes table not found — captured page is not the prizes page"
@@ -258,7 +247,6 @@ class AnalyticsStageResult:
     source_run_id: int
     analytics_run_id: int | None
     status: str
-    publishable: bool
     error_message: str | None = None
 
 
@@ -266,25 +254,13 @@ def run_analytics_stage(
     session_factory: sessionmaker[Session],
     *,
     source_run_id: int,
-    semantic_version: str = "1.0.0",
-    compute_regular_fn=compute_regular_analytics,
-    calibrate_fn=calibrate_claim_lag,
-    finalize_fn=finalize_high_tier_analytics,
+    semantic_version: str = "2.0.0",
+    compute_fn=compute_analytics,
 ) -> AnalyticsStageResult:
     """Compute analytics in its own transaction and persist an honest failure."""
     with session_factory(expire_on_commit=False) as session:
         try:
-            regular = compute_regular_fn(
-                session,
-                scrape_run_id=source_run_id,
-                semantic_version=semantic_version,
-            )
-            calibrate_fn(
-                session,
-                scrape_run_id=source_run_id,
-                semantic_version=semantic_version,
-            )
-            final = finalize_fn(
+            result = compute_fn(
                 session,
                 scrape_run_id=source_run_id,
                 semantic_version=semantic_version,
@@ -292,9 +268,8 @@ def run_analytics_stage(
             session.commit()
             return AnalyticsStageResult(
                 source_run_id=source_run_id,
-                analytics_run_id=regular.analytics_run_id,
+                analytics_run_id=result.analytics_run_id,
                 status="success",
-                publishable=final.publishable,
             )
         except Exception as exc:  # noqa: BLE001
             session.rollback()
@@ -309,7 +284,6 @@ def run_analytics_stage(
                 source_run_id=source_run_id,
                 analytics_run_id=failure.id,
                 status="failed",
-                publishable=False,
                 error_message=str(exc),
             )
 

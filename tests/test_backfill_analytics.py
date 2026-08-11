@@ -57,7 +57,7 @@ def test_backfill_resumes_only_failed_cutoff_and_commits_each_success(tmp_path):
         if cutoff_id == 2 and cutoff_id not in failed_once:
             failed_once.add(cutoff_id)
             raise RuntimeError("injected cutoff failure")
-        mark_analytics_run_success(session, run, publishable=False)
+        mark_analytics_run_success(session, run)
 
     first = backfill_analytics(factory, compute_cutoff_fn=injected)
     resumed = backfill_analytics(factory, resume=True, compute_cutoff_fn=injected)

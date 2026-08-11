@@ -1,4 +1,4 @@
-"""Wilson uncertainty, deterministic confidence, evidence, and lag sensitivity."""
+"""Wilson uncertainty and descriptive confidence/evidence labels."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ from decimal import Decimal, localcontext
 from .types import (
     ConfidenceLabel,
     EvidenceLabel,
-    LagSensitivity,
     WilsonAvailabilityInterval,
 )
 
@@ -15,7 +14,7 @@ WILSON_Z = Decimal("1.959963984540054")
 
 
 def wilson_availability_interval(
-    *, claimed_count: int, original_count: int, reference_remaining_fraction: Decimal
+    *, claimed_count: int | Decimal, original_count: int, reference_remaining_fraction: Decimal
 ) -> WilsonAvailabilityInterval | None:
     if (
         original_count <= 0
@@ -76,29 +75,6 @@ def classify_confidence(
     return "high"
 
 
-def compute_lag_sensitivity(
-    *,
-    availabilities: list[Decimal],
-    one_in_values: list[Decimal | None],
-    point_index: int = 1,
-) -> LagSensitivity | None:
-    if not availabilities or len(availabilities) != len(one_in_values):
-        return None
-    if not 0 <= point_index < len(availabilities):
-        return None
-    valid_odds = [value for value in one_in_values if value is not None]
-    directions = {_direction(value) for value in availabilities}
-    return LagSensitivity(
-        point_availability=availabilities[point_index],
-        minimum_availability=min(availabilities),
-        maximum_availability=max(availabilities),
-        point_one_in=one_in_values[point_index],
-        minimum_one_in=min(valid_odds) if valid_odds else None,
-        maximum_one_in=max(valid_odds) if valid_odds else None,
-        direction_changes=len(directions) > 1,
-    )
-
-
 def classify_evidence(
     *,
     interval: WilsonAvailabilityInterval | None,
@@ -118,11 +94,3 @@ def classify_evidence(
     ):
         return "unfavorable"
     return "indeterminate"
-
-
-def _direction(value: Decimal) -> int:
-    if value < 1:
-        return -1
-    if value > 1:
-        return 1
-    return 0

@@ -17,11 +17,7 @@ from .persistence import (
     get_model_version,
     mark_analytics_run_failed,
 )
-from .service import (
-    calibrate_claim_lag,
-    compute_regular_analytics,
-    finalize_high_tier_analytics,
-)
+from .service import compute_analytics
 
 
 @dataclass(frozen=True)
@@ -85,19 +81,7 @@ def backfill_analytics(
             attempted += 1
             try:
                 if compute_cutoff_fn is None:
-                    compute_regular_analytics(
-                        session,
-                        scrape_run_id=cutoff_id,
-                        model_name=model_name,
-                        semantic_version=semantic_version,
-                    )
-                    calibrate_claim_lag(
-                        session,
-                        scrape_run_id=cutoff_id,
-                        model_name=model_name,
-                        semantic_version=semantic_version,
-                    )
-                    finalize_high_tier_analytics(
+                    compute_analytics(
                         session,
                         scrape_run_id=cutoff_id,
                         model_name=model_name,

@@ -21,9 +21,9 @@ def test_progress_is_count_weighted_not_mean_of_tier_percentages():
     assert result.progress_fraction == Decimal("0.8")
 
 
-def test_baseline_boundary_includes_exactly_500_but_not_above():
+def test_baseline_boundary_includes_exactly_600_but_not_above():
     result = compute_game_progress(
-        [tier("500", 10_000, 8_000), tier("500.01", 100_000, 0)],
+        [tier("600", 10_000, 8_000), tier("600.01", 100_000, 0)],
         minimum_tiers=1,
     )
     assert result.original_count == 10_000

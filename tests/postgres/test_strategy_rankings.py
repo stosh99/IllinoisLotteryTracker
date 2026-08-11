@@ -10,38 +10,10 @@ import pytest
 from sqlalchemy import create_engine, text
 
 
-def _approve_model(connection, observed: datetime, suffix: str) -> int:
-    model_id = connection.execute(
+def _model_id(connection) -> int:
+    return connection.execute(
         text("SELECT id FROM analytics_model_versions")
     ).scalar_one()
-    backtest_id = connection.execute(
-        text(
-            """
-            INSERT INTO analytics_backtest_runs (
-              model_version_id, horizons, parameters, parameters_sha256,
-              started_at, finished_at, status, aggregate_results,
-              promotion_status, promotion_report
-            ) VALUES (
-              :model, '[7, 14, 30]'::jsonb, '{}'::jsonb, :sha,
-              :at, :at, 'success', '{}'::jsonb, 'passed',
-              '{"passed": true}'::jsonb
-            ) RETURNING id
-            """
-        ),
-        {"model": model_id, "sha": suffix * 64, "at": observed},
-    ).scalar_one()
-    connection.execute(
-        text(
-            """
-            UPDATE analytics_model_versions
-            SET approval_status='approved', approval_backtest_run_id=:backtest,
-                approval_decided_at=:at, approval_reason='integration-test approval'
-            WHERE id=:model
-            """
-        ),
-        {"backtest": backtest_id, "at": observed, "model": model_id},
-    )
-    return model_id
 
 
 def test_partial_and_source_only_strategy_rows_receive_no_rank():
@@ -130,14 +102,14 @@ def test_partial_and_source_only_strategy_rows_receive_no_rank():
                     "position": position,
                 },
             )
-        model_id = _approve_model(connection, observed, "a")
+        model_id = _model_id(connection)
         analytics_run = connection.execute(
             text(
                 """
                 INSERT INTO analytics_runs (
                   model_version_id, as_of_scrape_run_id, as_of_observed_at,
-                  started_at, finished_at, status, publishable
-                ) VALUES (:model, :source, :at, :at, :at, 'success', true)
+                  started_at, finished_at, status
+                ) VALUES (:model, :source, :at, :at, :at, 'success')
                 RETURNING id
                 """
             ),
@@ -208,7 +180,7 @@ def test_partial_and_source_only_strategy_rows_receive_no_rank():
         assert detail.contains_lumpy_tier is False
         assert detail.source_observed_at == observed
         assert detail.catalog_observed_at == observed
-        assert detail.model_version == "1.0.0"
+        assert detail.model_version == "2.0.0"
         transaction.rollback()
     engine.dispose()
 
@@ -246,7 +218,6 @@ def test_stale_source_makes_rankings_explicitly_unavailable():
                 ),
                 {"at": observed, "workflow": workflow, "sha": suffix * 64},
             )
-        _approve_model(connection, observed, "e")
         status = connection.execute(
             text("SELECT available, reason_code FROM current_strategy_ranking_status_v")
         ).one()

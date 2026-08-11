@@ -30,8 +30,48 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+      - run: python -m pip install --upgrade "pip>=26.1.2"
       - run: pip install -e ".[dev]"
       - run: alembic upgrade head
       - run: alembic heads
       - run: pytest
       - run: ruff check .
+      - name: Python dependency vulnerability report
+        continue-on-error: true
+        run: |
+          pip-audit --format json --output pip-audit.json
+      - name: Upload Python dependency audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-report
+          path: pip-audit.json
+          if-no-files-found: warn
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - name: Node dependency vulnerability report
+        continue-on-error: true
+        run: npm audit --json --audit-level=high > npm-audit.json
+      - name: Upload Node dependency audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: frontend/npm-audit.json
+          if-no-files-found: warn

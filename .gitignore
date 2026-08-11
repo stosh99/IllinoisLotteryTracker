@@ -43,6 +43,7 @@ Thumbs.db
 # Project data
 data/raw/**
 !data/raw/.gitkeep
+data/browser-profile/**
 data/backups/**
 logs/**
 !logs/.gitkeep

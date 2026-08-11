@@ -43,7 +43,25 @@ from illinois_lottery_tracker.pipeline import (
     run_analytics_stage,
     run_from_file,
 )
-from illinois_lottery_tracker.raw_collector import UNPAID_PRIZES_URL, collect_raw_snapshot
+from illinois_lottery_tracker.raw_collector import (
+    DEFAULT_CHROME_EXECUTABLE,
+    UNPAID_PRIZES_URL,
+    UNPAID_PRIZES_WAIT_SELECTOR,
+    PersistentChromeOptions,
+    collect_raw_snapshot,
+)
+
+
+def _persistent_chrome_options(args: argparse.Namespace) -> PersistentChromeOptions | None:
+    profile_dir = getattr(args, "chrome_profile_dir", None)
+    if profile_dir is None:
+        return None
+    return PersistentChromeOptions(
+        profile_dir=profile_dir,
+        executable_path=str(args.chrome_executable),
+        headless=args.headless_chrome,
+        force_x11=args.chrome_force_x11,
+    )
 
 
 def _main_unlocked(argv: list[str], engine: Engine | None) -> int:
@@ -66,6 +84,32 @@ def _main_unlocked(argv: list[str], engine: Engine | None) -> int:
         "--raw-file",
         metavar="PATH",
         help="Skip network fetch; use this saved HTML file instead.",
+    )
+    parser.add_argument(
+        "--chrome-profile-dir",
+        type=Path,
+        metavar="PATH",
+        help=(
+            "Use installed Chrome with this dedicated persistent collector profile "
+            "for browser fallbacks; never use a personal Chrome profile."
+        ),
+    )
+    parser.add_argument(
+        "--chrome-executable",
+        type=Path,
+        default=Path(DEFAULT_CHROME_EXECUTABLE),
+        metavar="PATH",
+        help=f"Installed Chrome executable (default: {DEFAULT_CHROME_EXECUTABLE}).",
+    )
+    parser.add_argument(
+        "--headless-chrome",
+        action="store_true",
+        help="Run persistent Chrome without a visible window (headed is the default).",
+    )
+    parser.add_argument(
+        "--chrome-force-x11",
+        action="store_true",
+        help="Force persistent Chrome onto the X11 display supplied by Xvfb.",
     )
     parser.add_argument(
         "--min-games",
@@ -129,6 +173,14 @@ def _main_unlocked(argv: list[str], engine: Engine | None) -> int:
     args = parser.parse_args(argv)
     assert engine is not None
 
+    if (
+        args.headless_chrome or args.chrome_force_x11
+    ) and args.chrome_profile_dir is None:
+        parser.error(
+            "--headless-chrome and --chrome-force-x11 require --chrome-profile-dir"
+        )
+    chrome_options = _persistent_chrome_options(args)
+
     fetch_method: str | None = None
 
     if args.raw_file:
@@ -163,7 +215,13 @@ def _main_unlocked(argv: list[str], engine: Engine | None) -> int:
         collection_started = time.perf_counter()
         print(f"Fetching {UNPAID_PRIZES_URL} ...", flush=True)
         try:
-            collection = collect_raw_snapshot(url=UNPAID_PRIZES_URL)
+            collection_kwargs = {
+                "url": UNPAID_PRIZES_URL,
+                "wait_selector": UNPAID_PRIZES_WAIT_SELECTOR,
+            }
+            if chrome_options is not None:
+                collection_kwargs["chrome_options"] = chrome_options
+            collection = collect_raw_snapshot(**collection_kwargs)
         except Exception as exc:  # noqa: BLE001
             print(f"ERROR: fetch failed: {exc}", file=sys.stderr)
             return 1
@@ -276,7 +334,7 @@ def _main_unlocked(argv: list[str], engine: Engine | None) -> int:
         print()
         print(
             f"Analytics: status={analytics.status} run_id={analytics.analytics_run_id} "
-            f"publishable={str(analytics.publishable).lower()}"
+            f"source_run_id={analytics.source_run_id}"
         )
         if analytics.error_message:
             print(f"Analytics error: {analytics.error_message}", file=sys.stderr)
@@ -334,7 +392,7 @@ def _finish_existing_source(
     stage_durations["analytics"] = time.perf_counter() - analytics_started
     print(
         f"Analytics: status={analytics.status} run_id={analytics.analytics_run_id} "
-        f"publishable={str(analytics.publishable).lower()}"
+        f"source_run_id={analytics.source_run_id}"
     )
     _print_stage_durations(stage_durations, total_started)
     _print_nightly_status(engine, args, stage_durations)
@@ -348,7 +406,11 @@ def _refresh_catalog_stage(
         return None
     started = time.perf_counter()
     try:
-        pages = collect_catalog_pages()
+        chrome_options = _persistent_chrome_options(args)
+        if chrome_options is None:
+            pages = collect_catalog_pages()
+        else:
+            pages = collect_catalog_pages(chrome_options=chrome_options)
         with Session(engine, expire_on_commit=False, future=True) as session:
             result = persist_catalog_run(session, pages)
             if args.dry_run:

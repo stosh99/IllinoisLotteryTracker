@@ -32,8 +32,6 @@ def test_all_core_tables_and_seeded_model_exist(connection):
     expected = {
         "analytics_model_versions",
         "analytics_runs",
-        "analytics_lag_calibrations",
-        "analytics_lag_game_estimates",
         "analytics_game_metrics",
         "analytics_tier_metrics",
         "analytics_strategy_metrics",
@@ -48,7 +46,7 @@ def test_all_core_tables_and_seeded_model_exist(connection):
     ).mappings().one()
     canonical = json.dumps(MODEL_PARAMETERS, sort_keys=True, separators=(",", ":"))
     assert row["model_name"] == "core_ticket_model"
-    assert row["semantic_version"] == "1.0.0"
+    assert row["semantic_version"] == "2.0.0"
     assert row["parameters"] == MODEL_PARAMETERS
     assert row["parameters_sha256"] == hashlib.sha256(canonical.encode()).hexdigest()
 
@@ -62,19 +60,25 @@ def test_model_version_is_database_immutable(connection):
     nested.rollback()
 
 
-def test_model_cannot_be_approved_without_a_passed_backtest(connection):
-    nested = connection.begin_nested()
-    with pytest.raises(DBAPIError, match="successful passed promotion backtest"):
-        connection.execute(
-            text(
-                """
-                UPDATE analytics_model_versions
-                SET approval_status='approved', approval_decided_at=now(),
-                    approval_reason='invalid approval without evidence'
-                """
-            )
-        )
-    nested.rollback()
+def test_old_adaptive_and_backtest_schema_is_absent(connection):
+    tables = set(inspect(connection).get_table_names())
+    assert "analytics_lag_calibrations" not in tables
+    assert "analytics_lag_game_estimates" not in tables
+    assert "analytics_backtest_runs" not in tables
+    model_columns = {
+        column["name"] for column in inspect(connection).get_columns("analytics_model_versions")
+    }
+    assert not any(name.startswith("approval_") for name in model_columns)
+    tier_columns = {
+        column["name"] for column in inspect(connection).get_columns("analytics_tier_metrics")
+    }
+    assert {
+        "adjustment_eligible",
+        "adjustment_status",
+        "reported_remaining_count",
+        "estimated_pending_count",
+        "adjusted_remaining_count",
+    } <= tier_columns
 
 
 def test_run_child_cascades_but_source_and_model_ownership_restrict(connection):

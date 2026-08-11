@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -100,12 +101,8 @@ def build_nightly_status(
     analytics = session.execute(
         text(
             """
-            SELECT ar.id, ar.status, ar.publishable, ar.as_of_scrape_run_id,
+            SELECT ar.id, ar.status, ar.as_of_scrape_run_id,
                    ar.as_of_observed_at, mv.model_name, mv.semantic_version,
-                   mv.approval_status, mv.approval_backtest_run_id,
-                   lc.status lag_status, lc.primary_qualified_game_count,
-                   lc.global_median_lag_days, lc.bootstrap_lower_lag_days,
-                   lc.bootstrap_upper_lag_days,
                    (SELECT count(*) FROM analytics_game_metrics gm
                     WHERE gm.analytics_run_id=ar.id AND gm.data_status='complete') games_scored,
                    (SELECT count(*) FROM analytics_game_metrics gm
@@ -118,17 +115,15 @@ def build_nightly_status(
                       AND tm.status IN ('available','depleted')) tiers_scored,
                    (SELECT count(*) FROM analytics_tier_metrics tm
                     WHERE tm.analytics_run_id=ar.id AND tm.status='unavailable') tiers_unavailable,
-                   EXISTS (
-                     SELECT 1 FROM analytics_runs prior
-                     JOIN analytics_lag_calibrations prior_lag
-                       ON prior_lag.analytics_run_id=prior.id
-                     WHERE prior.model_version_id=ar.model_version_id
-                       AND prior.as_of_observed_at < ar.as_of_observed_at
-                       AND prior_lag.status='available'
-                   ) prior_lag_available
+                   (SELECT count(*) FROM analytics_tier_metrics tm
+                    WHERE tm.analytics_run_id=ar.id
+                      AND tm.adjustment_status='applied') high_tiers_adjusted,
+                   (SELECT count(*) FROM analytics_tier_metrics tm
+                    WHERE tm.analytics_run_id=ar.id
+                      AND tm.adjustment_status='reference_unavailable')
+                    high_tiers_reference_unavailable
             FROM analytics_runs ar
             JOIN analytics_model_versions mv ON mv.id=ar.model_version_id
-            LEFT JOIN analytics_lag_calibrations lc ON lc.analytics_run_id=ar.id
             WHERE ar.as_of_scrape_run_id=(SELECT id FROM current_complete_scrape_run_v)
             ORDER BY mv.created_at DESC, ar.id DESC LIMIT 1
             """
@@ -253,7 +248,13 @@ def _row_document(row) -> dict:
     if row is None:
         return {}
     return {
-        key: value.isoformat() if hasattr(value, "isoformat") else value
+        key: (
+            value.isoformat()
+            if hasattr(value, "isoformat")
+            else float(value)
+            if isinstance(value, Decimal)
+            else value
+        )
         for key, value in row.items()
     }
 
@@ -331,16 +332,6 @@ def _alerts(
         alerts.append("ANALYTICS_CUTOFF_MISMATCH")
     if analytics and analytics.get("status") == "failed":
         alerts.append("ANALYTICS_FAILED")
-    if analytics and not analytics.get("publishable"):
-        alerts.append("ANALYTICS_NOT_PUBLISHABLE")
-    if analytics and analytics.get("approval_status") != "approved":
-        alerts.append("MODEL_NOT_APPROVED")
-    if (
-        analytics
-        and analytics.get("prior_lag_available")
-        and analytics.get("lag_status") != "available"
-    ):
-        alerts.append("LAG_UNEXPECTEDLY_UNAVAILABLE")
     parsed_games = source.get("parsed_game_count")
     parsed_tiers = source.get("parsed_prize_tier_count")
     previous_games = source.get("previous_parsed_game_count")

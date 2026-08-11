@@ -27,9 +27,9 @@ These caveats should be visible throughout the site, not hidden only in a footer
 - Lottery games remain negative expected value overall.
 - The site is for analysis and transparency, not gambling advice or outcome prediction.
 
-See `docs/database_blueprint/02_analytics_specification.md` for the canonical
-database approach to estimating relative claim-reporting lag for prizes
-strictly greater than `$600`.
+See `docs/database_blueprint/02_analytics_specification.md` for the fixed
+24-day correction used only for tiers above $600 with at least 300 original
+prizes, plus the official-count fallback used everywhere else.
 
 Suggested short caveat language:
 
@@ -266,7 +266,7 @@ Prioritize warnings:
 - Low remaining prize value percentage
 - Missing metadata
 - Recently disappeared from the unpaid-prizes page
-- Claim-lag exposure
+- Whether eligible high tiers were adjusted or use official counts
 
 Plain-English explanation:
 
@@ -373,7 +373,7 @@ Suggested filters:
 - Only games with all top prizes remaining
 - Only games above launch EV
 - Only games with strong mid-tier prizes
-- Only games with lower claim-lag exposure
+- Only games whose eligible high tiers have a 24-day reference
 
 Suggested sorts:
 
@@ -547,27 +547,15 @@ This matters because a large prize may still appear unclaimed even after the win
 
 The site should communicate this clearly.
 
-Possible concept:
+Suggested labels should report facts rather than invent a second score:
 
-> Claim Lag Risk
-
-Suggested labels:
-
-- Lower claim-lag exposure
-- Moderate claim-lag exposure
-- High claim-lag exposure
-
-Factors that increase claim-lag exposure:
-
-- EV heavily dependent on prizes over $600
-- EV heavily dependent on top prizes
-- Few large prizes remaining
-- Recent game with high-value prizes
-- Large difference between full EV and EV excluding large prizes
+- 24-day adjustment applied
+- Official high-prize count used
+- 24-day reference unavailable; official count used
 
 Practical implication:
 
-- Full estimated EV may be optimistic when large prizes are still listed but not yet processed as claimed.
+- Full estimated EV remains uncertain when large prizes are still listed but not yet processed as claimed.
 - EV excluding prizes over $600 may be a useful conservative comparison.
 - EV excluding top prizes may be more stable for practical users.
 

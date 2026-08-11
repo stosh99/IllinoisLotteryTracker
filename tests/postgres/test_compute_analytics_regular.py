@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from illinois_lottery_tracker.analytics.service import compute_regular_analytics
+from illinois_lottery_tracker.analytics.service import compute_analytics
 from illinois_lottery_tracker.analytics_models import AnalyticsTierMetric
 from illinois_lottery_tracker.models import Game, GameSnapshot, PrizeTierSnapshot, ScrapeRun
 
@@ -72,7 +72,7 @@ def test_compute_regular_cutoff_persists_every_tier_with_exact_references():
             )
         session.flush()
 
-        result = compute_regular_analytics(session, scrape_run_id=source.id)
+        result = compute_analytics(session, scrape_run_id=source.id)
         metrics = session.scalars(
             select(AnalyticsTierMetric)
             .where(AnalyticsTierMetric.analytics_run_id == result.analytics_run_id)
@@ -84,11 +84,12 @@ def test_compute_regular_cutoff_persists_every_tier_with_exact_references():
         assert [metric.reference_method for metric in metrics] == [
             "leave_one_tier_out",
             "leave_one_tier_out",
+            "leave_one_tier_out",
             "current_baseline",
-            "unavailable",
         ]
-        assert metrics[-1].exclusion_reason == "LAG_NOT_AVAILABLE"
-        assert metrics[0].availability_index == Decimal("1.250000000000")
+        assert metrics[-1].adjustment_status == "reported_only"
+        assert metrics[-1].status == "available"
+        assert metrics[0].availability_index == Decimal("1.235294117647")
     transaction.rollback()
     connection.close()
     engine.dispose()

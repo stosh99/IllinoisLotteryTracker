@@ -3,21 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, selectinload
 
 from ..models import GameSnapshot, ScrapeRun
-from .lag import (
-    EXPLORATORY_ORIGINAL_TARGET,
-    PRIMARY_ORIGINAL_TARGET,
-    AdaptiveBand,
-    ProgressObservation,
-    select_adaptive_band,
-)
-from .types import TierInput
+from .high_prize_adjustment import ORDINARY_PRIZE_MAX, ProgressPoint
 
 
 @dataclass(frozen=True)
@@ -25,18 +18,6 @@ class GameMembership:
     prize_source_current: bool
     catalog_current: bool
     recommendation_current: bool
-
-
-@dataclass(frozen=True)
-class LagGameHistory:
-    game_id: int
-    game_number: str
-    top_prize_amount: Decimal
-    primary_band: AdaptiveBand
-    exploratory_band: AdaptiveBand
-    primary_observations: tuple[ProgressObservation, ...]
-    exploratory_observations: tuple[ProgressObservation, ...]
-    prefit_exclusion_code: str | None
 
 
 def resolve_source_cutoff(
@@ -127,142 +108,10 @@ def current_catalog_observed_at(session: Session):
     ).scalar_one_or_none()
 
 
-def load_lag_game_histories(
-    session: Session, cutoff: ScrapeRun
-) -> list[LagGameHistory]:
-    """Load only observations available at the cutoff; never look ahead."""
-    histories: list[LagGameHistory] = []
-    for as_of in load_cutoff_game_snapshots(session, cutoff):
-        tiers = [
-            TierInput(
-                prize_amount=tier.prize_amount,
-                original_count=tier.original_count,
-                remaining_count=tier.remaining_count,
-                is_top_prize=tier.prize_amount
-                == max(item.prize_amount for item in as_of.prize_tiers),
-            )
-            for tier in as_of.prize_tiers
-        ]
-        primary = select_adaptive_band(
-            tiers, target_original_count=PRIMARY_ORIGINAL_TARGET
-        )
-        exploratory = select_adaptive_band(
-            tiers, target_original_count=EXPLORATORY_ORIGINAL_TARGET
-        )
-        if not primary.eligible and not exploratory.eligible:
-            histories.append(
-                LagGameHistory(
-                    game_id=as_of.game_id,
-                    game_number=as_of.game.game_number,
-                    top_prize_amount=primary.top_prize_amount,
-                    primary_band=primary,
-                    exploratory_band=exploratory,
-                    primary_observations=(),
-                    exploratory_observations=(),
-                    prefit_exclusion_code=primary.exclusion_reason,
-                )
-            )
-            continue
-        snapshots = list(
-            session.scalars(
-                select(GameSnapshot)
-                .join(ScrapeRun, ScrapeRun.id == GameSnapshot.scrape_run_id)
-                .where(
-                    GameSnapshot.game_id == as_of.game_id,
-                    ScrapeRun.workflow == "unpaid_prizes",
-                    ScrapeRun.status == "success",
-                    ScrapeRun.is_complete.is_(True),
-                    ScrapeRun.source_observed_at <= cutoff.source_observed_at,
-                )
-                .options(
-                    selectinload(GameSnapshot.prize_tiers),
-                    selectinload(GameSnapshot.scrape_run),
-                )
-                .order_by(ScrapeRun.source_observed_at, ScrapeRun.id)
-            ).all()
-        )
-        if any(
-            snapshot.structure_fingerprint != as_of.structure_fingerprint
-            for snapshot in snapshots
-        ):
-            histories.append(
-                LagGameHistory(
-                    game_id=as_of.game_id,
-                    game_number=as_of.game.game_number,
-                    top_prize_amount=primary.top_prize_amount,
-                    primary_band=primary,
-                    exploratory_band=exploratory,
-                    primary_observations=(),
-                    exploratory_observations=(),
-                    prefit_exclusion_code="STRUCTURE_CHANGED",
-                )
-            )
-            continue
-        expected = {tier.prize_amount: tier.original_count for tier in tiers}
-        primary_observations: list[ProgressObservation] = []
-        exploratory_observations: list[ProgressObservation] = []
-        invalid_structure = False
-        for snapshot in snapshots:
-            observed = {tier.prize_amount: tier for tier in snapshot.prize_tiers}
-            if set(observed) != set(expected) or any(
-                observed[amount].original_count != original
-                for amount, original in expected.items()
-            ):
-                invalid_structure = True
-                break
-            low_original = sum(
-                tier.original_count
-                for amount, tier in observed.items()
-                if amount <= 500
-            )
-            low_remaining = sum(
-                tier.remaining_count for amount, tier in observed.items() if amount <= 500
-            )
-            low_progress = Decimal(1) - Decimal(low_remaining) / Decimal(low_original)
-            for band, target in (
-                (primary, primary_observations),
-                (exploratory, exploratory_observations),
-            ):
-                if not band.eligible:
-                    continue
-                high_original = sum(
-                    observed[amount].original_count for amount in band.prize_amounts
-                )
-                high_remaining = sum(
-                    observed[amount].remaining_count for amount in band.prize_amounts
-                )
-                target.append(
-                    ProgressObservation(
-                        observed_at=snapshot.scrape_run.source_observed_at,
-                        low_progress=low_progress,
-                        high_progress=Decimal(1)
-                        - Decimal(high_remaining) / Decimal(high_original),
-                    )
-                )
-        histories.append(
-            LagGameHistory(
-                game_id=as_of.game_id,
-                game_number=as_of.game.game_number,
-                top_prize_amount=primary.top_prize_amount,
-                primary_band=primary,
-                exploratory_band=exploratory,
-                primary_observations=(
-                    tuple(primary_observations) if not invalid_structure else ()
-                ),
-                exploratory_observations=(
-                    tuple(exploratory_observations) if not invalid_structure else ()
-                ),
-                prefit_exclusion_code=(
-                    "STRUCTURE_CHANGED" if invalid_structure else None
-                ),
-            )
-        )
-    return histories
-
-
-def load_game_baseline_curve(
+def load_game_progress_curve(
     session: Session, *, game_id: int, cutoff: ScrapeRun
-) -> list[tuple[datetime, Decimal]]:
+) -> list[ProgressPoint]:
+    """Load the ordinary-tier progress curve without observations after cutoff."""
     snapshots = session.scalars(
         select(GameSnapshot)
         .join(ScrapeRun, ScrapeRun.id == GameSnapshot.scrape_run_id)
@@ -279,16 +128,21 @@ def load_game_baseline_curve(
         )
         .order_by(ScrapeRun.source_observed_at, ScrapeRun.id)
     ).all()
-    curve = []
+    curve: list[ProgressPoint] = []
     for snapshot in snapshots:
-        baseline = [tier for tier in snapshot.prize_tiers if tier.prize_amount <= 500]
+        baseline = [
+            tier
+            for tier in snapshot.prize_tiers
+            if tier.prize_amount <= ORDINARY_PRIZE_MAX
+        ]
         original = sum(tier.original_count for tier in baseline)
         remaining = sum(tier.remaining_count for tier in baseline)
         if original > 0:
             curve.append(
-                (
-                    snapshot.scrape_run.source_observed_at,
-                    Decimal(remaining) / Decimal(original),
+                ProgressPoint(
+                    observed_at=snapshot.scrape_run.source_observed_at,
+                    progress_fraction=Decimal(1)
+                    - Decimal(remaining) / Decimal(original),
                 )
             )
     return curve

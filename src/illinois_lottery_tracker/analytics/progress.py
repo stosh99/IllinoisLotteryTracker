@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from .types import BaselineMetrics, TierInput
 
-BASELINE_MAX_PRIZE = Decimal("500")
+BASELINE_MAX_PRIZE = Decimal("600")
 MIN_BASELINE_ORIGINALS = 10_000
 MIN_BASELINE_TIERS = 2
 

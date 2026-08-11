@@ -11,10 +11,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from ..analytics_models import (
-    AnalyticsBacktestRun,
     AnalyticsGameMetric,
-    AnalyticsLagCalibration,
-    AnalyticsLagGameEstimate,
     AnalyticsModelVersion,
     AnalyticsQualityIssue,
     AnalyticsRun,
@@ -24,24 +21,16 @@ from ..analytics_models import (
 from ..models import ScrapeRun
 
 MODEL_NAME = "core_ticket_model"
-MODEL_VERSION = "1.0.0"
+MODEL_VERSION = "2.0.0"
 MODEL_PARAMETERS = {
-    "baseline_max_prize": 500,
-    "bootstrap_samples": 10000,
-    "bootstrap_seed": 20260808,
+    "baseline_max_prize": 600,
     "confidence_information_high_boundary": 25,
     "confidence_information_low_boundary": 5,
     "confidence_information_moderate_boundary": 10,
     "confidence_min_tier_n": 20,
     "high_prize_strictly_greater_than": 600,
-    "lag_exploratory_original_count": 250,
-    "lag_internal_quantiles": 9,
-    "lag_max_interpolation_gap_days": 3,
-    "lag_min_global_games": 8,
-    "lag_min_overlap_fraction": 0.075,
-    "lag_min_snapshots": 30,
-    "lag_min_span_days": 30,
-    "lag_primary_original_count": 500,
+    "high_prize_minimum_original_count": 300,
+    "mail_claim_reporting_lag_days": 24,
     "reference_min_original_count": 10000,
     "source_fresh_hours": 36,
     "source_stale_error_hours": 72,
@@ -92,80 +81,6 @@ def get_model_version(
     return version
 
 
-def model_is_approved(session: Session, model_version_id: int) -> bool:
-    return bool(
-        session.scalar(
-            select(AnalyticsModelVersion.approval_status).where(
-                AnalyticsModelVersion.id == model_version_id
-            )
-        )
-        == "approved"
-    )
-
-
-def approve_model_version(
-    session: Session,
-    *,
-    model_name: str = MODEL_NAME,
-    semantic_version: str = MODEL_VERSION,
-    reason: str,
-    backtest_run_id: int | None = None,
-    decided_at: datetime | None = None,
-) -> AnalyticsModelVersion:
-    """Approve one model only with a persisted successful promotion backtest."""
-    if not reason.strip():
-        raise ValueError("model approval requires a nonempty reason")
-    model = get_model_version(
-        session, model_name=model_name, semantic_version=semantic_version
-    )
-    statement = select(AnalyticsBacktestRun).where(
-        AnalyticsBacktestRun.model_version_id == model.id,
-        AnalyticsBacktestRun.status == "success",
-        AnalyticsBacktestRun.promotion_status == "passed",
-    )
-    if backtest_run_id is not None:
-        statement = statement.where(AnalyticsBacktestRun.id == backtest_run_id)
-    backtest = session.scalar(
-        statement.order_by(
-            AnalyticsBacktestRun.finished_at.desc(), AnalyticsBacktestRun.id.desc()
-        )
-    )
-    if backtest is None:
-        raise ValueError("model approval requires a successful passed promotion backtest")
-    model.approval_status = "approved"
-    model.approval_backtest_run_id = backtest.id
-    model.approval_decided_at = (decided_at or datetime.now(UTC)).astimezone(UTC)
-    model.approval_reason = reason.strip()
-    session.flush()
-    return model
-
-
-def reject_model_version(
-    session: Session,
-    *,
-    model_name: str = MODEL_NAME,
-    semantic_version: str = MODEL_VERSION,
-    reason: str,
-    backtest_run_id: int | None = None,
-    decided_at: datetime | None = None,
-) -> AnalyticsModelVersion:
-    if not reason.strip():
-        raise ValueError("model rejection requires a nonempty reason")
-    model = get_model_version(
-        session, model_name=model_name, semantic_version=semantic_version
-    )
-    if backtest_run_id is not None:
-        backtest = session.get(AnalyticsBacktestRun, backtest_run_id)
-        if backtest is None or backtest.model_version_id != model.id:
-            raise ValueError("rejection backtest does not belong to the model version")
-    model.approval_status = "rejected"
-    model.approval_backtest_run_id = backtest_run_id
-    model.approval_decided_at = (decided_at or datetime.now(UTC)).astimezone(UTC)
-    model.approval_reason = reason.strip()
-    session.flush()
-    return model
-
-
 def acquire_analytics_run(
     session: Session,
     *,
@@ -197,7 +112,6 @@ def acquire_analytics_run(
     if existing is not None:
         if existing.status == "failed":
             existing.status = "running"
-            existing.publishable = False
             existing.error_message = None
             existing.started_at = now
             existing.finished_at = None
@@ -210,7 +124,6 @@ def acquire_analytics_run(
         as_of_observed_at=source.source_observed_at,
         started_at=now,
         status="running",
-        publishable=False,
     )
     session.add(run)
     session.flush()
@@ -273,12 +186,9 @@ def clear_retryable_run_children(session: Session, run: AnalyticsRun) -> None:
         AnalyticsStrategyMetric,
         AnalyticsTierMetric,
         AnalyticsGameMetric,
-        AnalyticsLagGameEstimate,
-        AnalyticsLagCalibration,
     ):
         session.execute(delete(model).where(model.analytics_run_id == run.id))
     session.flush()
-
 
 def analytics_child_counts(session: Session, run_id: int) -> AnalyticsChildCounts:
     def count(model) -> int:
@@ -298,17 +208,13 @@ def mark_analytics_run_success(
     session: Session,
     run: AnalyticsRun,
     *,
-    publishable: bool,
     finished_at: datetime | None = None,
 ) -> None:
     if run.status == "success":
-        if run.publishable != publishable:
-            raise ValueError("successful analytics runs are immutable")
         return
     if run.status != "running":
         raise ValueError(f"cannot succeed analytics run in status {run.status}")
     run.status = "success"
-    run.publishable = publishable
     run.finished_at = (finished_at or datetime.now(UTC)).astimezone(UTC)
     run.error_message = None
     session.flush()
@@ -324,29 +230,6 @@ def mark_analytics_run_failed(
     if run.status == "success":
         raise ValueError("successful analytics runs are immutable")
     run.status = "failed"
-    run.publishable = False
     run.error_message = error_message
     run.finished_at = (finished_at or datetime.now(UTC)).astimezone(UTC)
     session.flush()
-
-
-def publish_staged_analytics_run(
-    session: Session,
-    run: AnalyticsRun,
-    *,
-    finished_at: datetime | None = None,
-    publication_gates_passed: bool = True,
-) -> bool:
-    """Complete a staged run and publish only for an explicitly approved model."""
-    approved = model_is_approved(session, run.model_version_id)
-    publishable = approved and publication_gates_passed
-    if run.status == "success" and run.publishable:
-        return approved and publication_gates_passed
-    if run.status not in {"running", "success"}:
-        raise ValueError(f"cannot publish analytics run in status {run.status}")
-    run.status = "success"
-    run.publishable = publishable
-    run.finished_at = (finished_at or datetime.now(UTC)).astimezone(UTC)
-    run.error_message = None
-    session.flush()
-    return publishable

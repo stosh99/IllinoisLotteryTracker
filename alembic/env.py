@@ -8,6 +8,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from illinois_lottery_tracker import analytics_models, auth_models  # noqa: F401
 from illinois_lottery_tracker.config import get_settings
 from illinois_lottery_tracker.models import Base
 

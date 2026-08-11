@@ -85,6 +85,7 @@ def _write_verification_marker(dump_path: Path, target_database: str) -> Path:
         "dump_file": dump_path.name,
         "dump_sha256": _sha256(dump_path),
         "disposable_database": target_database,
+        "authentication_exposure": "prohibited_disposable_restore",
     }
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{marker.name}.", dir=marker.parent)
     temporary = Path(temporary_name)
@@ -206,14 +207,21 @@ def _drop_disposable_database(admin_engine: Any, database_name: str) -> None:
         connection.execute(
             text(
                 "SELECT pg_terminate_backend(pid) "
-                "FROM pg_stat_activity WHERE datname = :name"
+                "FROM pg_stat_activity WHERE datname = :name "
+                "AND backend_type = 'client backend' AND usename = current_user "
+                "AND pid <> pg_backend_pid()"
             ),
             {"name": database_name},
         )
         connection.exec_driver_sql(f"DROP DATABASE {_quoted_database(database_name)}")
 
 
-def _verify_revision(target_url: URL, expected_revision: str | None) -> None:
+def _verify_revision(
+    target_url: URL,
+    expected_revision: str | None,
+    *,
+    require_head: bool = True,
+) -> None:
     engine = create_engine(target_url, future=True)
     try:
         tables = inspect(engine).get_table_names()
@@ -227,7 +235,7 @@ def _verify_revision(target_url: URL, expected_revision: str | None) -> None:
         engine.dispose()
     configuration = _alembic_configuration(target_url)
     head = ScriptDirectory.from_config(configuration).get_current_head()
-    if actual != head:
+    if require_head and actual != head:
         raise RuntimeError(f"restored revision {actual!r} is not head {head!r}")
     if expected_revision is not None and actual != expected_revision:
         raise RuntimeError(
@@ -301,10 +309,24 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--upgrade-existing-to-head",
+        action="store_true",
+        help=(
+            "verify a backup at its recorded Alembic revision, then upgrade only "
+            "the disposable restore to head before audits and tests"
+        ),
+    )
+    parser.add_argument(
         "--audit-sql",
         type=Path,
         default=PROJECT_ROOT / "docs" / "database_blueprint" / "audit_queries.sql",
         help="Read-only SQL audit executed with psql after schema and row-count checks.",
+    )
+    parser.add_argument(
+        "--auth-audit-sql",
+        type=Path,
+        default=PROJECT_ROOT / "docs" / "authentication_blueprint" / "auth_audit_queries.sql",
+        help="Read-only authentication audit executed after the main database audit.",
     )
     parser.add_argument("--dry-run", action="store_true")
     return parser
@@ -334,6 +356,15 @@ def main(argv: list[str] | None = None) -> int:
             "without a migration revision",
             file=sys.stderr,
         )
+        return 2
+    if manifest_revision is None and args.upgrade_existing_to_head:
+        print(
+            "ERROR: --upgrade-existing-to-head requires a manifest revision",
+            file=sys.stderr,
+        )
+        return 2
+    if args.upgrade_legacy_baseline and args.upgrade_existing_to_head:
+        print("ERROR: choose only one upgrade mode", file=sys.stderr)
         return 2
 
     settings = get_settings()
@@ -370,6 +401,10 @@ def main(argv: list[str] | None = None) -> int:
     audit_sql = args.audit_sql.resolve()
     if not audit_sql.is_file():
         print(f"ERROR: audit SQL not found: {audit_sql}", file=sys.stderr)
+        return 2
+    auth_audit_sql = args.auth_audit_sql.resolve()
+    if not auth_audit_sql.is_file():
+        print(f"ERROR: auth audit SQL not found: {auth_audit_sql}", file=sys.stderr)
         return 2
 
     admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT", future=True)
@@ -423,10 +458,30 @@ def main(argv: list[str] | None = None) -> int:
                 "0001_existing_schema_baseline",
             )
             command.upgrade(_alembic_configuration(target_url), "head")
-        _verify_revision(target_url, manifest_revision)
-        _verify_row_counts(target_url, manifest.get("row_counts", {}))
+        if args.upgrade_existing_to_head:
+            _verify_revision(target_url, manifest_revision, require_head=False)
+            _verify_row_counts(target_url, manifest.get("row_counts", {}))
+            command.upgrade(_alembic_configuration(target_url), "head")
+            _verify_revision(target_url, None)
+        else:
+            _verify_revision(target_url, manifest_revision)
+            _verify_row_counts(target_url, manifest.get("row_counts", {}))
         subprocess.run(
             [psql, *connection_args, "--set", "ON_ERROR_STOP=1", "--file", str(audit_sql)],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+        subprocess.run(
+            [
+                psql,
+                *connection_args,
+                "--set",
+                "ON_ERROR_STOP=1",
+                "--file",
+                str(auth_audit_sql),
+            ],
             check=True,
             capture_output=True,
             text=True,

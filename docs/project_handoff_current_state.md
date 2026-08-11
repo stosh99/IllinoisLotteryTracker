@@ -1,5 +1,12 @@
 # IllinoisLotteryTracker — Current Project Handoff
 
+> **Superseded historical handoff.** This file describes the pre-blueprint
+> implementation and its mutable legacy EV formulas. Do not use it as current
+> operating or analytical guidance. The authoritative current documents are
+> `docs/database_blueprint/README.md`,
+> `docs/database_blueprint/IMPLEMENTATION_STATUS.md`, and
+> `docs/project-synopses.md`.
+
 ## Project Goal
 
 IllinoisLotteryTracker tracks Illinois Lottery instant ticket prize availability over time.
@@ -424,3 +431,4 @@ write them for CC unless told otherwise
 keep them easy to copy/paste
 include a specific Success criteria section every time
 success criteria must be task-specific, not generic boilerplate
+coe

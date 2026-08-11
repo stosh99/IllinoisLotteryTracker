@@ -11,7 +11,7 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 
-from illinois_lottery_tracker import analytics_models  # noqa: F401
+from illinois_lottery_tracker import analytics_models, auth_models  # noqa: F401
 from illinois_lottery_tracker.models import Base
 
 
@@ -46,11 +46,11 @@ def test_baseline_tables_and_columns_match_metadata(postgres_engine):
         assert actual_columns == {column.name for column in table.columns}
 
 
-def test_populated_0007_failed_promotion_upgrades_to_0008(postgres_engine):
-    """Exercise the revision boundary that fresh zero-to-head tests cannot cover."""
+def test_populated_0009_adaptive_state_upgrades_to_simplified_model(postgres_engine):
+    """The cleanup removes only derived analytics and preserves source data."""
 
     source_url = postgres_engine.url
-    target_database = f"illinois_lottery_test_migration_0007_{uuid4().hex[:12]}"
+    target_database = f"illinois_lottery_test_migration_0009_{uuid4().hex[:12]}"
     admin_url = source_url.set(database="postgres")
     target_url = source_url.set(database=target_database)
     admin_engine = create_engine(
@@ -70,50 +70,61 @@ def test_populated_0007_failed_promotion_upgrades_to_0008(postgres_engine):
             "sqlalchemy.url",
             target_url.render_as_string(hide_password=False).replace("%", "%%"),
         )
-        command.upgrade(configuration, "0007_legacy_metric_comments")
+        command.upgrade(configuration, "0009_authentication")
 
         target_engine = create_engine(target_url, future=True)
         with target_engine.begin() as connection:
-            backtest_id = connection.execute(
+            source_id = connection.execute(
                 text(
                     """
-                    INSERT INTO analytics_backtest_runs (
-                      model_version_id, cutoff_start_at, cutoff_end_at,
-                      horizons, parameters, parameters_sha256, started_at,
-                      finished_at, status, aggregate_results, promotion_status,
-                      promotion_report
+                    INSERT INTO scrape_runs (
+                      started_at, finished_at, status, workflow, source_observed_at,
+                      source_date, source_sha256, is_complete, parsed_game_count,
+                      parsed_prize_tier_count, pipeline_version
+                    ) VALUES (
+                      now(), now(), 'success', 'unpaid_prizes', now(),
+                      (now() AT TIME ZONE 'America/Chicago')::date, repeat('f', 64),
+                      true, 1, 1, 'test'
                     )
-                    SELECT id, now() - interval '30 days', now(),
-                      '[7, 14, 30]'::jsonb, '{}'::jsonb, repeat('f', 64),
-                      now() - interval '1 minute', now(), 'success', '{}'::jsonb,
-                      'failed', '{"passed": false}'::jsonb
-                    FROM analytics_model_versions
-                    WHERE model_name = 'core_ticket_model'
                     RETURNING id
                     """
                 )
             ).scalar_one()
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO analytics_runs (
+                      model_version_id, as_of_scrape_run_id, as_of_observed_at,
+                      started_at, finished_at, status, publishable
+                    ) SELECT id, :source, now(), now(), now(), 'success', false
+                    FROM analytics_model_versions
+                    """
+                ),
+                {"source": source_id},
+            )
 
-        command.upgrade(configuration, "0008_review_remediations")
+        command.upgrade(configuration, "head")
 
         with target_engine.connect() as connection:
             assert connection.execute(
                 text("SELECT version_num FROM alembic_version")
-            ).scalar_one() == "0008_review_remediations"
+            ).scalar_one() == ScriptDirectory.from_config(configuration).get_current_head()
             model = connection.execute(
                 text(
                     """
-                    SELECT approval_status, approval_backtest_run_id,
-                           approval_decided_at, approval_reason
+                    SELECT semantic_version, parameters
                     FROM analytics_model_versions
                     WHERE model_name = 'core_ticket_model'
                     """
                 )
             ).mappings().one()
-            assert model["approval_status"] == "rejected"
-            assert model["approval_backtest_run_id"] == backtest_id
-            assert model["approval_decided_at"] is not None
-            assert model["approval_reason"]
+            assert model["semantic_version"] == "2.0.0"
+            assert model["parameters"]["mail_claim_reporting_lag_days"] == 24
+            assert connection.execute(text("SELECT count(*) FROM scrape_runs")).scalar_one() == 1
+            assert connection.execute(text("SELECT count(*) FROM analytics_runs")).scalar_one() == 0
+            tables = set(inspect(connection).get_table_names())
+            assert "analytics_backtest_runs" not in tables
+            assert "analytics_lag_calibrations" not in tables
     finally:
         if target_engine is not None:
             target_engine.dispose()
@@ -122,7 +133,8 @@ def test_populated_0007_failed_promotion_upgrades_to_0008(postgres_engine):
                 connection.execute(
                     text(
                         "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                        "WHERE datname=:name"
+                        "WHERE datname=:name AND backend_type='client backend' "
+                        "AND usename=current_user AND pid <> pg_backend_pid()"
                     ),
                     {"name": target_database},
                 )

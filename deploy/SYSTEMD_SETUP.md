@@ -9,7 +9,17 @@ as `already_running`.
 
 ## Prerequisites
 
-### 1. Enable linger (one-time, requires sudo)
+### 1. Install the isolated virtual display
+
+The collector runs installed Chrome in headed mode on a private Xvfb display.
+Forcing Chrome to X11 prevents it from attaching to an operator's visible
+Wayland desktop.
+
+```bash
+sudo apt-get install --no-install-recommends xvfb xauth
+```
+
+### 2. Enable linger (one-time, requires sudo)
 
 Linger lets user services start at boot without an active login session:
 
@@ -24,7 +34,7 @@ loginctl show-user stosh99 | grep Linger
 # Linger=yes
 ```
 
-### 2. Confirm .env is present with mode 600
+### 3. Confirm .env is present with mode 600
 
 ```bash
 chmod 600 /home/stosh99/projects/IllinoisLotteryTracker/.env
@@ -151,8 +161,19 @@ independent catalog stage. Targeted detail metadata collection remains a
 separate command so no source/catalog transaction spans detail-page network
 I/O.
 
+The Chrome profile is stored at `data/browser-profile/collector`, is ignored by
+Git, and must not be opened by another Chrome process. A brand-new profile can
+receive a Cloudflare challenge on its first timer attempt; the failed browser
+visit still warms the persistent profile, and the later hourly timer attempts
+can retry safely. Source validation remains fail-closed throughout.
+
 The nightly status reads the explicit backup directory; it does not create a
 backup. Schedule `scripts/backup_database.py` separately and run
 `scripts/verify_database_restore.py` at least monthly. Rankings remain
 unavailable when the model is not explicitly approved or when source/catalog
 freshness exceeds the model gate.
+
+Authentication retention has a separate least-privilege service/timer so a
+cleanup failure cannot replace or disrupt source collection. Its installation,
+dry-run, restore, proxy, and incident procedures are documented in
+[AUTHENTICATION_OPERATIONS.md](AUTHENTICATION_OPERATIONS.md).

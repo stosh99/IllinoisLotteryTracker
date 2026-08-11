@@ -40,11 +40,11 @@ def test_database_safety_scripts_have_help():
         "audit_source_data.py",
         "backup_database.py",
         "backfill_analytics.py",
-        "backtest_analytics.py",
-        "calibrate_claim_lag.py",
         "compute_analytics.py",
         "import_catalog_files.py",
+        "maintain_authentication.py",
         "maintain_raw_archive.py",
+        "manage_user_account.py",
         "report_analytics.py",
         "verify_database_restore.py",
     ):

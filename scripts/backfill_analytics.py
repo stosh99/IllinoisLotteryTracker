@@ -15,7 +15,7 @@ from illinois_lottery_tracker.db import get_engine
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model-version", default="1.0.0")
+    parser.add_argument("--model-version", default="2.0.0")
     parser.add_argument("--from-source-date", type=date.fromisoformat)
     parser.add_argument("--to-source-date", type=date.fromisoformat)
     parser.add_argument("--resume", action="store_true")

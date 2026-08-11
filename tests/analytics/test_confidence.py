@@ -3,7 +3,6 @@ from decimal import Decimal
 from illinois_lottery_tracker.analytics.confidence import (
     classify_confidence,
     classify_evidence,
-    compute_lag_sensitivity,
     information_count,
     wilson_availability_interval,
 )
@@ -57,17 +56,3 @@ def test_evidence_requires_interval_sensitivity_and_non_lumpy_confidence():
         sensitivity_availabilities=[Decimal("1.2")],
         confidence="lumpy",
     ) == "indeterminate"
-
-
-def test_lag_sensitivity_stores_ranges_without_averaging():
-    result = compute_lag_sensitivity(
-        availabilities=[Decimal("0.9"), Decimal("1.2"), Decimal("1.4")],
-        one_in_values=[Decimal("20000"), Decimal("16000"), Decimal("14000")],
-    )
-    assert result is not None
-    assert result.point_availability == Decimal("1.2")
-    assert result.minimum_availability == Decimal("0.9")
-    assert result.maximum_availability == Decimal("1.4")
-    assert result.minimum_one_in == Decimal("14000")
-    assert result.maximum_one_in == Decimal("20000")
-    assert result.direction_changes is True

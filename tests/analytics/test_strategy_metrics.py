@@ -38,9 +38,12 @@ def _score(amount: str, probability: str, *, top: bool = False) -> TierScore:
         prize_amount=Decimal(amount),
         original_count=100,
         remaining_count=50,
+        effective_remaining_count=Decimal(50),
         is_top_prize=top,
         prize_group="high" if Decimal(amount) > 600 else "baseline",
-        reference_kind="lagged_baseline" if Decimal(amount) > 600 else "leave_one_tier_out",
+        reference_kind=(
+            "current_full_baseline" if Decimal(amount) > 600 else "leave_one_tier_out"
+        ),
         status="available",
         unavailable_reason=None,
         absolute_unavailable_reason=None,

@@ -7,8 +7,13 @@ Wants=network-online.target
 Type=oneshot
 WorkingDirectory=/home/stosh99/projects/IllinoisLotteryTracker
 EnvironmentFile=/home/stosh99/projects/IllinoisLotteryTracker/.env
-ExecStart=/home/stosh99/projects/IllinoisLotteryTracker/.venv/bin/python \
+ExecStart=/usr/bin/xvfb-run --auto-servernum \
+    "--server-args=-screen 0 1920x1080x24 -nolisten tcp" \
+    /usr/bin/env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
+    /home/stosh99/projects/IllinoisLotteryTracker/.venv/bin/python \
     /home/stosh99/projects/IllinoisLotteryTracker/scripts/run_nightly_unpaid_prizes_pipeline.py \
+    --chrome-profile-dir /home/stosh99/projects/IllinoisLotteryTracker/data/browser-profile/collector \
+    --chrome-force-x11 \
     --skip-if-today-imported \
     --refresh-catalog \
     --backup-dir /home/stosh99/projects/IllinoisLotteryTracker/data/backups \

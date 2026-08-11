@@ -1,0 +1,10 @@
+[Unit]
+Description=Illinois Lottery Tracker — daily authentication retention timer
+
+[Timer]
+OnCalendar=*-*-* 02:35:00 America/Chicago
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

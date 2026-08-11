@@ -6,10 +6,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Literal
 
-PrizeGroup = Literal["baseline", "retail_gap", "high"]
-ReferenceKind = Literal[
-    "leave_one_tier_out", "current_full_baseline", "lagged_baseline", "unavailable"
-]
+PrizeGroup = Literal["baseline", "high"]
+ReferenceKind = Literal["leave_one_tier_out", "current_full_baseline", "unavailable"]
 MetricStatus = Literal["available", "depleted", "unavailable"]
 AggregateStatus = Literal["complete", "partial", "unavailable", "not_applicable"]
 ConfidenceLabel = Literal["lumpy", "low", "moderate", "high"]
@@ -44,6 +42,7 @@ class TierScore:
     prize_amount: Decimal
     original_count: int
     remaining_count: int
+    effective_remaining_count: Decimal
     is_top_prize: bool
     prize_group: PrizeGroup
     reference_kind: ReferenceKind
@@ -57,8 +56,6 @@ class TierScore:
     current_probability: Decimal | None
     launch_one_in: Decimal | None
     current_one_in: Decimal | None
-    expected_reported_remaining: Decimal | None = None
-    equivalent_current_remaining: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -69,17 +66,6 @@ class WilsonAvailabilityInterval:
     remaining_upper: Decimal
     availability_lower: Decimal
     availability_upper: Decimal
-
-
-@dataclass(frozen=True)
-class LagSensitivity:
-    point_availability: Decimal
-    minimum_availability: Decimal
-    maximum_availability: Decimal
-    point_one_in: Decimal | None
-    minimum_one_in: Decimal | None
-    maximum_one_in: Decimal | None
-    direction_changes: bool
 
 
 @dataclass(frozen=True)

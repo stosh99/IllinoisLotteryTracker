@@ -1,0 +1,19 @@
+[Unit]
+Description=Illinois Lottery Tracker — authentication retention maintenance
+After=postgresql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/stosh99/projects/IllinoisLotteryTracker
+EnvironmentFile=/home/stosh99/projects/IllinoisLotteryTracker/.env
+ExecStart=/home/stosh99/projects/IllinoisLotteryTracker/.venv/bin/python /home/stosh99/projects/IllinoisLotteryTracker/scripts/maintain_authentication.py --apply
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/stosh99/projects/IllinoisLotteryTracker
+RestrictSUIDSGID=true
+LockPersonality=true
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=illinois-lottery-auth-maintenance

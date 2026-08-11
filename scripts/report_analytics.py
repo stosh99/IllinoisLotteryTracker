@@ -48,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
         row = session.execute(
             text(
                 """
-                SELECT ar.id, ar.status, ar.publishable, ar.as_of_scrape_run_id,
+                SELECT ar.id, ar.status, ar.as_of_scrape_run_id,
                        ar.as_of_observed_at,
                        (SELECT count(*) FROM analytics_game_metrics gm
                         WHERE gm.analytics_run_id=ar.id) AS games,
@@ -56,14 +56,15 @@ def main(argv: list[str] | None = None) -> int:
                         WHERE tm.analytics_run_id=ar.id) AS tiers,
                        (SELECT count(*) FROM analytics_tier_metrics tm
                         WHERE tm.analytics_run_id=ar.id
-                          AND tm.exclusion_reason='LAG_NOT_AVAILABLE') AS high_pending,
+                          AND tm.adjustment_status='applied') AS high_adjusted,
+                       (SELECT count(*) FROM analytics_tier_metrics tm
+                        WHERE tm.analytics_run_id=ar.id
+                          AND tm.adjustment_status='reference_unavailable')
+                         AS high_reference_unavailable,
                        (SELECT count(*) FROM analytics_quality_issues qi
                         WHERE qi.analytics_run_id=ar.id) AS issues,
                        (SELECT count(*) FROM analytics_strategy_metrics sm
-                        WHERE sm.analytics_run_id=ar.id) AS strategies,
-                       (SELECT global_median_lag_days
-                        FROM analytics_lag_calibrations lc
-                        WHERE lc.analytics_run_id=ar.id) AS median_lag_days
+                        WHERE sm.analytics_run_id=ar.id) AS strategies
                 FROM analytics_runs ar WHERE ar.id=:run_id
                 """
             ),
@@ -81,13 +82,13 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(
             f"Analytics run {document['id']}: status={document['status']} "
-            f"publishable={str(document['publishable']).lower()} "
             f"source_run={document['as_of_scrape_run_id']}"
         )
         print(
             f"Games={document['games']} tiers={document['tiers']} "
-            f"high_pending={document['high_pending']} issues={document['issues']} "
-            f"strategies={document['strategies']} lag_days={document['median_lag_days']}"
+            f"high_adjusted={document['high_adjusted']} "
+            f"high_reference_unavailable={document['high_reference_unavailable']} "
+            f"issues={document['issues']} strategies={document['strategies']}"
         )
     return 0
 

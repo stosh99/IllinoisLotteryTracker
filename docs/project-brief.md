@@ -1,58 +1,38 @@
 # IllinoisLotteryTracker
 
-Goal: Track Illinois Lottery instant-ticket prize availability over time using
-auditable source history and versioned analytics.
+Goal: make public Illinois Lottery instant-ticket prize availability easier to
+compare while retaining auditable official history.
 
-## Primary purpose
+## Implemented foundation
 
-- Collect official Illinois Lottery instant ticket prize data nightly
-- Preserve raw source snapshots
-- Parse prize data into structured records
-- Store game and prize tier snapshots in PostgreSQL
-- Calculate non-circular tier probabilities, EV, and player-style rankings
-- Validate the claim-lag hypothesis with cutoff-strict walk-forward tests
-- Build UI later after enough trend data exists
+- nightly official-source and retail-catalog collection;
+- immutable raw and normalized snapshot history;
+- PostgreSQL constraints, current views, reconciliation, and audits;
+- backup and verified-restore tooling;
+- versioned tier, EV, strategy, and ranking analytics;
+- read-only ranking API and React comparison frontend; and
+- authentication work in a separate implementation path.
 
-## Initial priorities
+## High-prize rule
 
-1. Database schema ✅
-2. Raw snapshot collection ✅
-3. Source discovery ✅
-4. Parser ✅
-5. Import pipeline ✅
-6. Data quality / reconciliation ✅
-7. Versioned math/metrics ✅
-8. Nightly scheduler/orchestration ✅
-9. Database status/reporting ✅
-10. Public UI later
+Illinois prizes above $600 can be reported later because they require
+claim-center processing. Model 2.0.0 applies one fixed 24-day correction only
+to individual tiers with at least 300 original prizes. Smaller tiers and tiers
+without a usable historical reference use their official count and remain in
+the product.
 
-The database-centric implementation is complete through the blueprint release
-gate. It includes:
+## Product principles
 
-- Alembic migrations, logical backup/verified restore tooling, and CI;
-- immutable source/catalog provenance and current-membership views;
-- a <=$500 baseline, $500-$600 retail gap, and strict >$600 high-tier model;
-- adaptive lag calibration, strategy datasets, backtesting, and promotion
-  gates;
-- advisory-locked nightly stages, resumable backfill, and status alerts.
+- Preserve official source evidence and never overwrite history.
+- Label EV and probabilities as estimates.
+- Never equate unclaimed prizes with unsold tickets.
+- Never present an older analytics cutoff as current.
+- Keep optional estimation gaps distinct from source-integrity failures.
+- Say “compare games using public prize-availability data,” not “find winning
+  tickets.”
 
-Two source workflows are complete:
-- Unpaid-prizes snapshot import (games, game_snapshots, prize_tier_snapshots)
-- Instant-ticket hub discovery and detail metadata import (games only)
+## Next product work
 
-Reconciliation compares coverage between the two sources by game_number and is read-only.
-
-The observed roughly 24-day descriptive lag is not currently promoted for
-predictive ranking: paired walk-forward validation performed worse than the
-no-lag comparator. Results remain stored as auditable evidence, model version
-1.0.0 is rejected, and its rankings are not publishable.
-
-## Important principles
-
-- Preserve raw source files
-- Do not overwrite history
-- Make parser testable with fixtures
-- Treat expected value as estimated
-- Never equate unclaimed prizes with unsold tickets
-- Never expose analytics from an older cutoff as current
-- Avoid polished UI until data pipeline is stable
+Connect and validate the live frontend, deploy a minimal production surface,
+complete authentication, and add personal ticket-result tracking behind
+authenticated accounts.

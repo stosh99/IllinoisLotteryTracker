@@ -165,14 +165,13 @@ FROM game_catalog_snapshots
 WHERE scrape_run_id = (SELECT id FROM current_complete_catalog_run_v)
   AND game_id IS NULL;
 
--- Current source and analytics cutoffs must match for a publishable analytics
+-- Current source and successful analytics cutoffs must match
 -- result. This returns either one matching row or no analytics row; it must
 -- never return a mismatched pair.
 SELECT
     source.id AS source_run_id,
     analytics.as_of_scrape_run_id AS analytics_source_run_id,
     analytics.id AS analytics_run_id,
-    analytics.publishable,
     source.id = analytics.as_of_scrape_run_id AS cutoffs_match
 FROM current_complete_scrape_run_v source
 LEFT JOIN current_analytics_run_v analytics ON true;

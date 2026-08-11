@@ -8,6 +8,7 @@ monkeypatched so no browser is launched.
 from __future__ import annotations
 
 import hashlib
+import stat
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -20,10 +21,13 @@ from illinois_lottery_tracker.config import Settings
 from illinois_lottery_tracker.paths import dated_raw_dir
 from illinois_lottery_tracker.raw_collector import (
     BatchPageResult,
+    PersistentChromeOptions,
     _browser_headers,
     _FetchOutcome,
     _filename,
     _is_forbidden,
+    _prepare_persistent_chrome,
+    cloudflare_challenge_marker,
     collect_pages_batch,
     collect_raw_snapshot,
 )
@@ -91,6 +95,22 @@ def test_is_forbidden_only_for_403():
     assert _is_forbidden(err_500) is False
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"<title>Just a moment...</title>",
+        b"<div id='challenge-form'></div>",
+        b"<script src='/cdn-cgi/challenge-platform/h/g/orchestrate/chl_page/v1'></script>",
+    ],
+)
+def test_cloudflare_challenge_marker_detects_known_markers(content):
+    assert cloudflare_challenge_marker(content) is not None
+
+
+def test_cloudflare_challenge_marker_ignores_normal_html():
+    assert cloudflare_challenge_marker(b"<html><h1>Illinois Lottery</h1></html>") is None
+
+
 def test_collect_uses_requests_path_on_success(tmp_path, monkeypatch):
     body = b"<html>requests-success</html>"
     fake = _FakeSession(_FakeResponse(200, body))
@@ -149,6 +169,84 @@ def test_collect_falls_back_to_playwright_on_403(tmp_path, monkeypatch):
     assert result.fetch_method == "playwright"
     assert Path(result.file_path).read_bytes() == playwright_body
     assert result.bytes_written == len(playwright_body)
+
+
+def test_collect_falls_back_to_browser_on_200_cloudflare_challenge(
+    tmp_path, monkeypatch
+):
+    challenge = b"<html><title>Just a moment...</title></html>"
+    fake = _FakeSession(_FakeResponse(200, challenge))
+    browser_body = b"<html><div class='real-source'>loaded</div></html>"
+    calls = 0
+
+    def fake_playwright(url, *, user_agent, timeout_ms, wait_selector=None):
+        nonlocal calls
+        calls += 1
+        return _FetchOutcome(
+            content=browser_body,
+            content_type="text/html; charset=utf-8",
+            fetch_method="playwright",
+        )
+
+    monkeypatch.setattr(raw_collector, "_fetch_with_playwright", fake_playwright)
+
+    result = collect_raw_snapshot(
+        url="https://example.test/page",
+        settings=_settings(tmp_path),
+        session=fake,
+    )
+
+    assert calls == 1
+    assert result.fetch_method == "playwright"
+    assert Path(result.file_path).read_bytes() == browser_body
+
+
+def test_collect_can_force_dedicated_persistent_chrome_path(tmp_path, monkeypatch):
+    browser_body = b"<html>installed-chrome</html>"
+    options = PersistentChromeOptions(profile_dir=tmp_path / "profile")
+    received_options = None
+
+    def fake_playwright(
+        url, *, user_agent, timeout_ms, wait_selector=None, chrome_options=None
+    ):
+        nonlocal received_options
+        received_options = chrome_options
+        return _FetchOutcome(
+            content=browser_body,
+            content_type="text/html; charset=utf-8",
+            fetch_method="chrome",
+        )
+
+    monkeypatch.setattr(raw_collector, "_fetch_with_playwright", fake_playwright)
+
+    result = collect_raw_snapshot(
+        url="https://example.test/page",
+        settings=_settings(tmp_path / "raw"),
+        chrome_options=options,
+        requests_first=False,
+    )
+
+    assert received_options is options
+    assert result.fetch_method == "chrome"
+    assert Path(result.file_path).read_bytes() == browser_body
+
+
+def test_prepare_persistent_chrome_creates_private_profile(tmp_path):
+    executable = tmp_path / "chrome"
+    executable.write_text("test executable", encoding="utf-8")
+    executable.chmod(0o700)
+    profile = tmp_path / "collector-profile"
+
+    resolved_executable, resolved_profile = _prepare_persistent_chrome(
+        PersistentChromeOptions(
+            profile_dir=profile,
+            executable_path=str(executable),
+        )
+    )
+
+    assert resolved_executable == executable.resolve()
+    assert resolved_profile == profile.resolve()
+    assert stat.S_IMODE(profile.stat().st_mode) == 0o700
 
 
 def test_collect_does_not_fall_back_on_500(tmp_path, monkeypatch):

@@ -48,6 +48,7 @@ def get_session() -> Iterator[Session]:
 
 def create_all_tables() -> None:
     """Create every table declared on the metadata. Early-development helper."""
+    from . import analytics_models, auth_models  # noqa: F401
     from .models import Base
 
     engine = get_engine()

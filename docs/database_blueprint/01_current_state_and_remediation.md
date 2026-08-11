@@ -187,7 +187,7 @@ are implemented.
 run. The new engine must:
 
 - compute one versioned analytics result for the newest complete source run;
-- scan history only for lag calibration or explicit backfills;
+- scan one game's cutoff-strict history only for the fixed 24-day reference;
 - make historical backfill a separate resumable command;
 - use an advisory lock so overlapping systemd attempts cannot compute or
   publish concurrently.
@@ -226,13 +226,10 @@ apply migrations from an empty database.
 
 ### P2 — documentation is contradictory
 
-The README still says parsing, EV calculations, and scheduling are not built,
-although all three exist. The old lag note uses `>= $600`, a fixed mail-in
-group, very small calibration minimums, and a same-day subtraction adjustment.
-Those instructions are historical, not implementable requirements.
+The README must accurately describe the implemented parsing, EV, scheduling,
+and fixed high-prize adjustment behavior.
 
-The blueprint must be linked from the README, and older notes must carry a
-superseded banner where their formulas conflict.
+The blueprint must be linked from the README and conflicting formulas removed.
 
 ## Canonical Current-Source Definition
 
@@ -292,18 +289,16 @@ than free-form prose:
 | `CATALOG_STALE` | warning/error | Latest complete catalog exceeds freshness threshold |
 | `CATALOG_UNMAPPED` | warning | Catalog URL/card has no mapped game number |
 | `MISSING_OVERALL_ODDS` | error | Absolute probability/EV unavailable |
-| `MISSING_BASELINE` | error | No valid `<= $500` reference set |
+| `MISSING_BASELINE` | error | No valid `<= $600` reference set |
 | `BASELINE_TOO_SMALL` | warning/error | Reference original count below model minimum |
 | `INVALID_TIER_COUNT` | error | Null, negative, or remaining above original |
 | `ROLLUP_MISMATCH` | error | Snapshot aggregate differs from tier sum |
 | `STRUCTURE_CHANGE` | error | Original tier fingerprint changed |
 | `COUNT_REVERSAL` | error | Later remaining count exceeds prior count |
-| `LAG_NOT_AVAILABLE` | warning | Global lag failed qualification |
-| `LAG_HISTORY_MISSING` | warning | Game lacks a bracketed `t-D` baseline |
-| `LAG_SENSITIVE` | warning | Favorable/unfavorable direction changes over lag interval |
+| `HIGH_REFERENCE_UNAVAILABLE` | info | Eligible tier uses its official-count fallback |
 | `TIER_LUMPY` | info | Expected claimed/remaining observations are too few |
 | `METRIC_PARTIAL` | warning | Some required tiers could not be scored |
 
 Raw rows with an issue remain stored. Error-level issues exclude the affected
-entity from publishable analytics; they never cause source history to be
+entity from current analytics; they never cause source history to be
 rewritten.

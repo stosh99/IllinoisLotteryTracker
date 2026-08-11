@@ -3,13 +3,16 @@
 A data-first pipeline that tracks Illinois Lottery instant ticket prize
 availability over time. The pipeline collects official source pages nightly,
 preserves raw snapshots on disk, parses game/prize data, and stores historical
-snapshots in PostgreSQL. It computes versioned non-circular tier analytics,
-claim-lag calibration, strategy datasets, and auditable backtests.
+snapshots in PostgreSQL. It computes versioned tier and strategy analytics,
+including a narrow fixed 24-day correction for statistically stable high-prize
+tiers. A read-only API and React frontend expose rankings from aligned, fresh
+source, catalog, and analytics cutoffs.
 
 The canonical implementation design for the database-centric analytics phase
 is [docs/database_blueprint/README.md](docs/database_blueprint/README.md).
-No public UI, API, authentication, or personal play tracking is in the current
-scope.
+Google OIDC authentication and local account/session management are implemented
+but deliberately disabled until the production release gate is complete.
+Personal play tracking is not built yet.
 
 See [docs/project-brief.md](docs/project-brief.md) for the longer plan.
 
@@ -39,12 +42,54 @@ work should use the editable install above.
 
 ### 3. Install the Playwright browser
 
-The raw collector tries `requests` first and falls back to headless Chromium
-via Playwright when the origin blocks the request (for example with HTTP 403).
-Download the browser binary once per machine:
+The raw collector tries `requests` first and falls back to Chromium via
+Playwright when the origin blocks the request. The fallback is triggered by
+both HTTP 403 and Cloudflare challenge HTML returned with HTTP 200. Download
+the bundled browser binary once per machine:
 
 ```bash
 playwright install chromium
+```
+
+For Cloudflare diagnostics, the collector can instead launch the machine's
+installed Chrome with a dedicated persistent profile. The profile is separate
+from every personal browser profile and is ignored by Git. This command opens
+a visible Chrome window, validates both primary source pages, saves the raw
+HTML, and performs no database writes:
+
+```bash
+python scripts/check_live_chrome_collection.py
+```
+
+If Cloudflare presents an interactive prompt, complete it in that dedicated
+window. The resulting clearance state remains in
+`data/browser-profile/collector` for later collector runs. Never point the
+collector at a personal Chrome profile or open the dedicated collector profile
+in another Chrome process at the same time.
+
+Do not assume that the persistent profile makes headless Chrome equivalent to
+visible Chrome. Cloudflare can still distinguish the modes; require a live
+headless diagnostic pass before using `--headless-chrome` in an unattended job.
+These diagnostic and manual commands do not install or modify a systemd unit.
+
+For unattended collection, run headed Chrome on an isolated virtual X11
+display instead of using Chrome's headless mode:
+
+```bash
+xvfb-run --auto-servernum \
+  --server-args="-screen 0 1920x1080x24 -nolisten tcp" \
+  env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
+  .venv/bin/python scripts/check_live_chrome_collection.py \
+  --profile-dir data/browser-profile/collector \
+  --force-x11
+```
+
+After the diagnostic passes, a manual nightly run can opt into the same browser
+fallback without changing the installed systemd service:
+
+```bash
+python scripts/run_nightly_unpaid_prizes_pipeline.py \
+  --chrome-profile-dir data/browser-profile/collector
 ```
 
 ### 4. Create your `.env`
@@ -64,6 +109,26 @@ database. `.env` is git-ignored — never commit real credentials.
 ```bash
 python scripts/check_db.py
 ```
+
+### Run the read-only API and frontend
+
+Start the API from the project root:
+
+```bash
+.venv/bin/uvicorn illinois_lottery_tracker.api:app --reload
+```
+
+In another terminal, start the Vite frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The frontend uses `/api/v1/rankings` by default. The endpoint reads the current
+status and ranking views in one read-only transaction and returns no rows when
+the source, catalog, freshness, or current-analytics checks fail.
 
 ### Create or upgrade the schema
 
@@ -111,22 +176,13 @@ older analytics cutoff.
 ```bash
 python scripts/compute_analytics.py
 python scripts/backfill_analytics.py --resume
-python scripts/backtest_analytics.py --report-json
 python scripts/report_analytics.py --nightly-status
 ```
 
-Analytics are never made current merely because a version number is newest.
-Only an explicitly approved model with a persisted passing promotion backtest
-can publish. Inspect or change model state with:
-
-```bash
-python scripts/manage_model_approval.py
-python scripts/manage_model_approval.py --approve \
-  --backtest-run-id ID --reason "reviewed passing promotion report"
-```
-
-Approval without a passing backtest is rejected by both the application and
-PostgreSQL. A failed promotion backtest automatically rejects the model.
+Model 2.0.0 computes every tier in one pass. High tiers above $600 with at least
+300 original prizes use the fixed 24-day correction when history is available;
+otherwise they use official counts and remain visible. Successful model/cutoff
+runs are immutable.
 
 If the live catalog is temporarily blocked but a complete raw crawl was
 already preserved, replay the ordered files without network access:
@@ -143,6 +199,24 @@ those retained transition columns, and the legacy report command is disabled.
 
 ```bash
 pytest
+
+cd frontend
+npm test
+npm run build
+npm run test:e2e
+```
+
+### Authentication operations
+
+Authentication remains off unless `AUTH_ENABLED=true` passes the strict startup
+configuration and schema-readiness checks. Before enabling it publicly, follow
+[deploy/AUTHENTICATION_OPERATIONS.md](deploy/AUTHENTICATION_OPERATIONS.md).
+Database-only maintenance and operator commands remain usable while login is
+disabled:
+
+```bash
+python scripts/maintain_authentication.py --dry-run
+python scripts/manage_user_account.py --show-user-id <local-user-uuid>
 ```
 
 ### Lint
@@ -157,16 +231,16 @@ ruff check .
 src/illinois_lottery_tracker/   # importable package
 scripts/                        # CLI entry points
 tests/                          # unit plus disposable-PostgreSQL integration tests
+frontend/                       # React comparison frontend
 docs/                           # design notes
 data/raw/YYYY-MM-DD/            # preserved raw snapshots (git-ignored)
 logs/                           # runtime logs (git-ignored)
 ```
 
-## What is intentionally NOT built
+## What is intentionally not built yet
 
-- Public API or UI
-- Authentication and user accounts
 - Personal play/outcome tracking
+- Personal ticket write APIs
 
 The current implementation remains database-first. Rankings come only from an
 exact current source/model cutoff in `current_strategy_rankings_v`. Retained

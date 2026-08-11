@@ -80,7 +80,7 @@ def _snapshot(connection, run_id: int, game_id: int, observed_at: datetime) -> i
 
 
 def test_quarantined_newer_run_never_replaces_complete_current(connection):
-    observed = datetime(2026, 8, 8, 12, tzinfo=UTC)
+    observed = datetime.now(UTC) + timedelta(days=1)
     game_id = _game(connection, "current-view-1")
     complete_run = _run(connection, observed, "a")
     _snapshot(connection, complete_run, game_id, observed)
@@ -95,7 +95,7 @@ def test_quarantined_newer_run_never_replaces_complete_current(connection):
 
 
 def test_legitimate_complete_run_changes_current_membership(connection):
-    observed = datetime(2026, 8, 8, 12, tzinfo=UTC)
+    observed = datetime.now(UTC) + timedelta(days=1)
     old_game = _game(connection, "current-view-old")
     new_game = _game(connection, "current-view-new")
     old_run = _run(connection, observed, "c")
@@ -112,7 +112,7 @@ def test_legitimate_complete_run_changes_current_membership(connection):
 
 
 def test_catalog_and_source_reconciliation_views_expose_each_membership(connection):
-    observed = datetime(2026, 8, 8, 12, tzinfo=UTC)
+    observed = datetime.now(UTC) + timedelta(days=1)
     both = _game(connection, "reconcile-both")
     source_only = _game(connection, "reconcile-source")
     catalog_only = _game(connection, "reconcile-catalog")
