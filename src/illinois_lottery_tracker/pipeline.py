@@ -293,7 +293,7 @@ def run_analytics_stage(
 # ---------------------------------------------------------------------------
 
 
-def _find_prior_import(session: Session, sha256: str) -> int | None:
+def find_prior_import(session: Session, sha256: str) -> int | None:
     """Return the scrape_run_id of a prior import of this content, or None.
 
     A "prior import" is a ``RawSourceSnapshot`` with the given sha256 whose
@@ -407,7 +407,7 @@ def run_from_file(
     parse_result = parse_html(raw_path)
     quality = assess_parse_result(parse_result)
 
-    prior_run_id = _find_prior_import(session, sha256)
+    prior_run_id = find_prior_import(session, sha256)
     if prior_run_id is not None:
         force_note = " --force cannot duplicate an immutable complete source" if force else ""
         raise DuplicateImportError(

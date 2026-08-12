@@ -1,0 +1,16 @@
+[Unit]
+Description=Illinois Lottery Tracker — loopback-only shadow-production API and site
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/stosh99/apps/illinois-lottery-tracker/current
+EnvironmentFile=/home/stosh99/.config/illinois-lottery-tracker/production.env
+Environment=PYTHONPATH=/home/stosh99/apps/illinois-lottery-tracker/current/src
+ExecStart=/home/stosh99/projects/IllinoisLotteryTracker/.venv/bin/uvicorn illinois_lottery_tracker.api:app --host 127.0.0.1 --port 8766
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

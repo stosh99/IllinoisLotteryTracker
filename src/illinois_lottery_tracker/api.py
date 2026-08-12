@@ -48,7 +48,8 @@ PRODUCTION_CSP = (
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Fail startup when explicitly enabled authentication is not ready."""
+    """Fail startup when database identity or enabled authentication is not ready."""
+    get_engine()
     default_auth_runtime()
     yield
 

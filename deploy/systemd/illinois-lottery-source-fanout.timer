@@ -1,0 +1,14 @@
+[Unit]
+Description=Illinois Lottery Tracker — split source collection timer
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 America/Chicago
+OnCalendar=*-*-* 04:00:00 America/Chicago
+OnCalendar=*-*-* 05:00:00 America/Chicago
+OnCalendar=*-*-* 06:00:00 America/Chicago
+AccuracySec=1s
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target
