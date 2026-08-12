@@ -1,179 +1,123 @@
-# Systemd Scheduling Setup
+# Systemd operations: split collection and shadow production
 
-Runs the unpaid-prizes pipeline as a systemd user service (no root required).
-The timer fires four times each morning in `America/Chicago`. Each run first checks the database for
-a successful imported snapshot for the current source date; if one already
-exists, it skips fetching but still verifies that matching analytics are
-published. A PostgreSQL advisory lock makes overlapping attempts exit cleanly
-as `already_running`.
+The active deployment collects official source evidence once and independently
+imports the same immutable bundle into development and shadow production. The
+shadow site is loopback-only and authentication is disabled. The authoritative
+implementation and rollback record is
+[docs/environment_separation/IMPLEMENTATION_STATUS.md](../docs/environment_separation/IMPLEMENTATION_STATUS.md).
 
-## Prerequisites
+## Active units
 
-### 1. Install the isolated virtual display
+- `illinois-lottery-dev-api.service` — development API/site on `127.0.0.1:8765`
+- `illinois-lottery-shadow-api.service` — shadow API/site on `127.0.0.1:8766`
+- `illinois-lottery-source-fanout.service` — database-free collection followed by
+  independent development and production imports
+- `illinois-lottery-source-fanout.timer` — four Illinois-morning attempts
 
-The collector runs installed Chrome in headed mode on a private Xvfb display.
-Forcing Chrome to X11 prevents it from attaching to an operator's visible
-Wayland desktop.
+The previous `illinois-lottery-nightly.timer` is disabled, not deleted. Its service
+and timer files are preserved both in the user systemd directory and in the private
+rollback directory documented below.
 
-```bash
-sudo apt-get install --no-install-recommends xvfb xauth
+## Configuration and data
+
+Private mode-600 environment files live in:
+
+```text
+/home/stosh99/.config/illinois-lottery-tracker/development.env
+/home/stosh99/.config/illinois-lottery-tracker/production.env
+/home/stosh99/.config/illinois-lottery-tracker/collector.env
 ```
 
-### 2. Enable linger (one-time, requires sudo)
+Do not print or pass those files through `env`, `xargs`, command-line arguments, or
+logs. Development and production files each set `APP_ENV`, an exact
+`EXPECTED_DATABASE_NAME`, their independent `DATABASE_URL`, the shared
+`RAW_DATA_DIR`, and `AUTH_ENABLED=false`. The collector file has no database URL.
 
-Linger lets user services start at boot without an active login session:
+The shared archive is
+`/home/stosh99/illinois-lottery-data/source-captures`. The original project archive
+at `data/raw` remains preserved. The dedicated Chrome profile is
+`/home/stosh99/illinois-lottery-data/browser-profile/collector`.
+
+## Status and logs
 
 ```bash
-sudo loginctl enable-linger stosh99
+systemctl --user status illinois-lottery-dev-api.service
+systemctl --user status illinois-lottery-shadow-api.service
+systemctl --user status illinois-lottery-source-fanout.timer
+systemctl --user status illinois-lottery-source-fanout.service
+journalctl --user -u illinois-lottery-source-fanout.service -n 100
 ```
 
-Verify:
+Confirm only the intended timer is active:
 
 ```bash
-loginctl show-user stosh99 | grep Linger
-# Linger=yes
+systemctl --user list-timers --all
+systemctl --user is-enabled illinois-lottery-source-fanout.timer
+systemctl --user is-enabled illinois-lottery-nightly.timer
 ```
 
-### 3. Confirm .env is present with mode 600
+## Manual checks
+
+Run the installed collector/fan-out service idempotently:
 
 ```bash
-chmod 600 /home/stosh99/projects/IllinoisLotteryTracker/.env
-stat -c '%a %n' /home/stosh99/projects/IllinoisLotteryTracker/.env
-# DATABASE_URL=postgresql+psycopg://...
-# RAW_DATA_DIR=data/raw
+systemctl --user start illinois-lottery-source-fanout.service
 ```
 
----
-
-## Install
-
-Copy unit files to the user systemd directory and reload:
+Compare database revisions, all table row counts, and zero auth rows without printing
+credentials:
 
 ```bash
-cp deploy/systemd/illinois-lottery-nightly.service ~/.config/systemd/user/
-cp deploy/systemd/illinois-lottery-nightly.timer   ~/.config/systemd/user/
-systemctl --user daemon-reload
+.venv/bin/python scripts/compare_shadow_environments.py \
+  --development-env /home/stosh99/.config/illinois-lottery-tracker/development.env \
+  --production-env /home/stosh99/.config/illinois-lottery-tracker/production.env
 ```
 
----
-
-## Enable and Start
+Check the loopback surfaces:
 
 ```bash
+curl -f http://127.0.0.1:8765/api/v1/rankings
+curl -f http://127.0.0.1:8766/api/v1/rankings
+curl -f http://127.0.0.1:8766/api/v1/auth/session
+curl -f http://127.0.0.1:8766/
+```
+
+The auth-session response must report `authenticationAvailable: false` and
+`authenticated: false`.
+
+## Timer details
+
+The timer fires at 03:00, 04:00, 05:00, and 06:00 `America/Chicago`, with up to five
+minutes of jitter and `Persistent=true`. Once a valid bundle exists for today's
+Illinois source date, later attempts validate and re-import the newest such bundle
+idempotently rather than collecting again.
+
+Collection uses headed installed Chrome on a private Xvfb display only when direct
+HTTP collection is blocked or returns challenge content. A failed challenge capture
+cannot publish a bundle and cannot reach either database.
+
+## Rollback
+
+Exact legacy unit copies are at:
+
+```text
+/home/stosh99/.config/illinois-lottery-tracker/rollback/illinois-lottery-nightly.service
+/home/stosh99/.config/illinois-lottery-tracker/rollback/illinois-lottery-nightly.timer
+```
+
+To restore scheduling without deleting any new evidence or database:
+
+```bash
+systemctl --user disable --now illinois-lottery-source-fanout.timer
 systemctl --user enable --now illinois-lottery-nightly.timer
 ```
 
-Verify the timer is active:
+To stop only the shadow surface:
 
 ```bash
-systemctl --user list-timers illinois-lottery-nightly.timer
+systemctl --user disable --now illinois-lottery-shadow-api.service
 ```
 
----
-
-## Status and Logs
-
-```bash
-# Timer status
-systemctl --user status illinois-lottery-nightly.timer
-
-# Most recent service run status
-systemctl --user status illinois-lottery-nightly.service
-
-# Full journal output for all runs
-journalctl --user -u illinois-lottery-nightly.service
-
-# Last run only
-journalctl --user -u illinois-lottery-nightly.service -n 100
-```
-
----
-
-## Manual Run (one-off)
-
-Run the service immediately without waiting for the timer:
-
-```bash
-systemctl --user start illinois-lottery-nightly.service
-```
-
-Or run the script directly from a shell (useful for debugging):
-
-```bash
-cd /home/stosh99/projects/IllinoisLotteryTracker
-env $(grep -v '^#' .env | xargs) \
-    .venv/bin/python scripts/run_nightly_unpaid_prizes_pipeline.py \
-    --skip-if-today-imported --refresh-catalog \
-    --backup-dir /home/stosh99/projects/IllinoisLotteryTracker/data/backups \
-    --raw-growth-limit-bytes 1073741824
-```
-
-Dry-run (parse and import but roll back — no DB writes):
-
-```bash
-cd /home/stosh99/projects/IllinoisLotteryTracker
-env $(grep -v '^#' .env | xargs) \
-    .venv/bin/python scripts/run_nightly_unpaid_prizes_pipeline.py --dry-run
-```
-
-Re-import a specific saved file (skips network fetch):
-
-```bash
-cd /home/stosh99/projects/IllinoisLotteryTracker
-env $(grep -v '^#' .env | xargs) \
-    .venv/bin/python scripts/run_nightly_unpaid_prizes_pipeline.py \
-    --raw-file data/raw/2026-05-10/unpaid-instant-games-prizes-20260510T000519Z.html
-```
-
----
-
-## Disable and Remove
-
-```bash
-systemctl --user disable --now illinois-lottery-nightly.timer
-rm ~/.config/systemd/user/illinois-lottery-nightly.service
-rm ~/.config/systemd/user/illinois-lottery-nightly.timer
-systemctl --user daemon-reload
-```
-
----
-
-## Timer Details
-
-| Setting | Value | Effect |
-|---|---|---|
-| `OnCalendar` | 03:00, 04:00, 05:00, 06:00 `America/Chicago` | Up to four daily attempts; later attempts skip source collection but verify matching analytics |
-| `AccuracySec` | `1s` | Near-exact firing time (default is 1 minute) |
-| `RandomizedDelaySec` | `300` | Random 0–5 min jitter to avoid thundering-herd |
-| `Persistent` | `true` | Runs immediately on next boot if a scheduled run was missed |
-
-The source import and analytics stages commit independently. If analytics fail,
-the observed source remains current and the canonical analytics views return no
-row until that exact cutoff is successfully recomputed. Run a resumable repair
-with:
-
-```bash
-.venv/bin/python scripts/backfill_analytics.py --resume
-```
-
-Catalog pages are collected outside a transaction and then committed as an
-independent catalog stage. Targeted detail metadata collection remains a
-separate command so no source/catalog transaction spans detail-page network
-I/O.
-
-The Chrome profile is stored at `data/browser-profile/collector`, is ignored by
-Git, and must not be opened by another Chrome process. A brand-new profile can
-receive a Cloudflare challenge on its first timer attempt; the failed browser
-visit still warms the persistent profile, and the later hourly timer attempts
-can retry safely. Source validation remains fail-closed throughout.
-
-The nightly status reads the explicit backup directory; it does not create a
-backup. Schedule `scripts/backup_database.py` separately and run
-`scripts/verify_database_restore.py` at least monthly. Rankings remain
-unavailable when the model is not explicitly approved or when source/catalog
-freshness exceeds the model gate.
-
-Authentication retention has a separate least-privilege service/timer so a
-cleanup failure cannot replace or disrupt source collection. Its installation,
-dry-run, restore, proxy, and incident procedures are documented in
-[AUTHENTICATION_OPERATIONS.md](AUTHENTICATION_OPERATIONS.md).
+The pre-split and post-split restore-verified backups are listed in the implementation
+status. Do not drop the production database, remove either archive, delete a release,
+or overwrite environment files as part of routine rollback.

@@ -108,6 +108,7 @@ def test_rate_limit_rejects_before_auth_lookup_and_scrubs_callback() -> None:
 
 def test_production_security_headers_are_applied_without_cors(monkeypatch) -> None:
     monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setattr(api, "get_engine", lambda: object())
     api.app.state.auth_runtime = AuthRuntime(settings=_settings())
     with TestClient(api.app) as client:
         response = client.get("/api/v1/auth/session")

@@ -1,0 +1,26 @@
+[Unit]
+Description=Illinois Lottery Tracker — collect once and import into development and production
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/stosh99/projects/IllinoisLotteryTracker
+EnvironmentFile=/home/stosh99/.config/illinois-lottery-tracker/collector.env
+Environment=PYTHONPATH=/home/stosh99/projects/IllinoisLotteryTracker/src
+ExecStart=/usr/bin/xvfb-run --auto-servernum \
+    "--server-args=-screen 0 1920x1080x24 -nolisten tcp" \
+    /usr/bin/env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
+    /home/stosh99/projects/IllinoisLotteryTracker/.venv/bin/python \
+    /home/stosh99/projects/IllinoisLotteryTracker/scripts/run_split_source_pipeline.py \
+    --development-root /home/stosh99/projects/IllinoisLotteryTracker \
+    --development-env /home/stosh99/.config/illinois-lottery-tracker/development.env \
+    --production-root /home/stosh99/apps/illinois-lottery-tracker/current \
+    --production-env /home/stosh99/.config/illinois-lottery-tracker/production.env \
+    --raw-root /home/stosh99/illinois-lottery-data/source-captures \
+    --chrome-profile-dir /home/stosh99/illinois-lottery-data/browser-profile/collector \
+    --chrome-force-x11 \
+    --skip-if-today-collected
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=illinois-lottery-source-fanout

@@ -14,6 +14,12 @@ Google OIDC authentication and local account/session management are implemented
 but deliberately disabled until the production release gate is complete.
 Personal play tracking is not built yet.
 
+Development and loopback-only shadow production are separated. One database-free
+collector feeds immutable evidence bundles to independent databases and importers.
+See
+[docs/environment_separation/IMPLEMENTATION_STATUS.md](docs/environment_separation/IMPLEMENTATION_STATUS.md)
+for the verified state and rollback boundary.
+
 See [docs/project-brief.md](docs/project-brief.md) for the longer plan.
 
 ## Setup
@@ -154,7 +160,19 @@ alembic upgrade head
 Never stamp a nonempty database merely to make Alembic accept it. Restore the
 backup into a disposable database and run the schema and audit checks first.
 
-### Run the nightly pipeline manually
+### Run the split source pipeline
+
+The installed scheduler collects once and fans the same verified bundle out to both
+environments. Run it idempotently with:
+
+```bash
+systemctl --user start illinois-lottery-source-fanout.service
+```
+
+Environment-specific credentials are stored outside the repository. See
+[deploy/SYSTEMD_SETUP.md](deploy/SYSTEMD_SETUP.md) for status, comparison, and
+rollback commands. The command below is the preserved legacy single-database runner,
+not the active scheduler:
 
 ```bash
 python scripts/run_nightly_unpaid_prizes_pipeline.py \
@@ -163,7 +181,7 @@ python scripts/run_nightly_unpaid_prizes_pipeline.py \
   --raw-growth-limit-bytes 1073741824
 ```
 
-This acquires a PostgreSQL advisory lock, fetches and validates the Illinois
+The legacy runner acquires a PostgreSQL advisory lock, fetches and validates the Illinois
 Lottery unpaid-prizes page without an open transaction, preserves the raw
 capture, commits normalized source snapshots, and computes the matching
 versioned analytics in a separate transaction. The optional catalog refresh is

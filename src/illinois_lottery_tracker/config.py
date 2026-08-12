@@ -15,6 +15,8 @@ DEFAULT_RAW_DATA_DIR = "data/raw"
 class Settings:
     database_url: str | None
     raw_data_dir: str
+    app_env: str = "development"
+    expected_database_name: str | None = None
 
     def require_database_url(self) -> str:
         if not self.database_url:
@@ -40,6 +42,8 @@ def load_settings(env_file: str | os.PathLike[str] | None = None) -> Settings:
     return Settings(
         database_url=os.getenv("DATABASE_URL") or None,
         raw_data_dir=os.getenv("RAW_DATA_DIR") or DEFAULT_RAW_DATA_DIR,
+        app_env=os.getenv("APP_ENV") or "development",
+        expected_database_name=os.getenv("EXPECTED_DATABASE_NAME") or None,
     )
 
 
