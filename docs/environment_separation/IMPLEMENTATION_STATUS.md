@@ -1,52 +1,78 @@
-# Shadow-production implementation status
+# Development / production implementation status
 
-Status: **implemented and verified on 2026-08-11; public promotion prohibited**.
+Status: **implemented, publicly promoted, and verified on 2026-08-12**.
 
 ## Outcome
 
-Development and production now have independent PostgreSQL databases and credentials,
-independent API processes, and independent importer subprocesses. One database-free
-collector publishes an immutable source bundle and fans that exact evidence out to
-both environments. Shadow production binds only to `127.0.0.1:8766`.
-Authentication remains explicitly disabled and all five authentication/user tables
-contain zero rows.
+Development and production have independent PostgreSQL databases, credentials,
+application processes, and importer subprocesses. One database-free collector
+publishes an immutable source bundle and fans that exact evidence out to both
+environments.
 
-The split timer is active. The legacy timer is disabled but its installed files,
-private rollback copies, original database, original raw archive, and verified backup
-remain intact.
+Production runs from a Git-pinned release on `127.0.0.1:8766`. Nginx exposes that
+loopback service at [https://illinoislotterytracker.com](https://illinoislotterytracker.com),
+redirects HTTP and `www` requests to the canonical HTTPS origin, and does not expose
+the Uvicorn port directly. Authentication remains explicitly disabled and the five
+authentication/user tables contain zero rows.
+
+The split source timer is active. The legacy timer, shadow service, shadow release,
+original database, original raw archive, verified backups, and a named pre-promotion
+release pointer remain preserved for rollback.
 
 ## Verified state
 
-| Check | Result |
+| Check | Result at public promotion |
 | --- | --- |
 | Development identity | `illinois_lottery_tracker_dev` as `lottery_dev` |
 | Production identity | `illinois_lottery_tracker_prod` as `lottery_prod` |
 | Migration revision | `0011_defer_auth_event_links` in both |
-| Database comparison after live import | all 20 table counts identical |
-| Authentication data | 0 rows in every auth/user table |
+| Database comparison | all 20 table counts identical after live import |
+| Authentication data | 0 rows in every auth/user table; public session reports unavailable |
 | Source audit | zero failures |
-| Saved-bundle fan-out | passed in both environments |
-| Fresh live bundle | bundle `0bd457a4…`; 3 catalog pages; passed in both |
-| Live run IDs | source 101, catalog 102, analytics 184 in both |
-| API content | ranking/status/mode content identical; timestamps generated per request |
-| API binding | development 8765 and shadow 8766 on loopback only |
-| Frontend | production build served by shadow API |
-| Authentication endpoint | reports authentication unavailable and unauthenticated |
-| Installed fan-out unit | successful manual idempotence run against newest bundle |
-| Lint and tests | clean at implementation handoff |
+| API binding | development 8765 and production 8766, both loopback only |
+| Production release | Git commit `ac6e3b83dbc0e21406818497f46b1a0d6f3d3512` |
+| Public API content | comparison available; 442 strategy-ranking rows; source run 101 |
+| Public application | homepage, detail, history, and SPA routes returned successfully |
+| Browser interaction | installed Chrome passed desktop and 390 px mobile flows with 52 live games |
+| Browser layout/runtime | no horizontal overflow or runtime/request failures |
+| TLS | valid ECDSA certificate for apex and `www`; expires 2026-11-10 |
+| Renewal | Certbot simulated renewal succeeded; deploy hook reloads valid Nginx config |
+| Redirects | HTTP apex, HTTP `www`, and HTTPS `www` redirect to HTTPS apex |
+| Security surface | HSTS, CSP, content-type, referrer, and permissions headers present |
+| Neighboring sites | four existing HTTPS virtual hosts still returned 200 with valid TLS |
 
-The forced browser-first collection encountered a Cloudflare “Just a moment” page and
-failed closed before manifest publication. The normal HTTP-first collection with the
-same persistent-Chrome fallback then succeeded and produced the verified live bundle.
-This confirms challenge HTML cannot enter either database while retaining the working
-collection route.
+## Release and public edge
+
+The active release is:
+
+```text
+/home/stosh99/apps/illinois-lottery-tracker/releases/prod-ac6e3b83dbc0
+```
+
+It has its own Python virtual environment and lockfile-built frontend. The atomic
+`/home/stosh99/apps/illinois-lottery-tracker/current` symlink selects it. The
+pre-promotion target is retained at:
+
+```text
+/home/stosh99/apps/illinois-lottery-tracker/rollback-before-public-20260812
+```
+
+The permanent process is `illinois-lottery-prod-api.service`. The preserved
+`illinois-lottery-shadow-api.service` is disabled. Both use the same loopback port,
+so only one may run at a time.
+
+The tracked Nginx bootstrap and final configurations are under `deploy/nginx`. The
+active site file is `/etc/nginx/sites-available/illinoislotterytracker.com`, enabled
+through `sites-enabled`. Certbot uses the webroot
+`/var/www/illinoislotterytracker`, and the tracked deploy hook under
+`deploy/certbot` validates and reloads Nginx after a successful renewal.
 
 ## Preservation and recovery artifacts
 
 The original archive remains at
-`/home/stosh99/projects/IllinoisLotteryTracker/data/raw`. It was copied to
-`/home/stosh99/illinois-lottery-data/source-captures`; checksum comparison reported no
-differences, with 11,616 files and 936,108,165 bytes on each side at copy time.
+`/home/stosh99/projects/IllinoisLotteryTracker/data/raw`. Its verified canonical copy
+is `/home/stosh99/illinois-lottery-data/source-captures`. Exact legacy unit copies
+remain under `/home/stosh99/.config/illinois-lottery-tracker/rollback/`.
 
 Restore-verified backups:
 
@@ -54,29 +80,24 @@ Restore-verified backups:
 - `data/backups/post_environment_split_dev_20260811.dump`
 - `data/backups/post_environment_split_prod_20260811.dump`
 
-Each has a SHA-256 manifest and a disposable-restore verification marker. Exact legacy
-unit copies are under
-`/home/stosh99/.config/illinois-lottery-tracker/rollback/`.
+Each has a SHA-256 manifest and a disposable-restore verification marker.
 
-## Release qualification
+## Authentication boundary
 
-The shadow release is an immutable staged copy under
-`/home/stosh99/apps/illinois-lottery-tracker/releases`, selected by the `current`
-symlink. `SHADOW_BUILD_INFO.json` records base commit
-`cf41343b4c74fcbfe5ff7145c6bd6fa008570c07` plus a full source-tree digest.
-
-The work remains intentionally uncommitted at the user's request. Therefore the
-release is marked `public_promotion_eligible=false`. Before any public deployment,
-review and commit the implementation, stage a Git-pinned release, independently
-review reverse-proxy/TLS configuration, and make a separate decision about enabling
-authentication. None of those public/auth changes are part of this milestone.
+Public promotion did not authorize authentication. Production retains
+`AUTH_ENABLED=false`, no identity-provider credentials are needed at startup, and
+the public session endpoint reports both authentication unavailable and the visitor
+unauthenticated. Enabling login remains a separate deployment with the checks in
+[deploy/AUTHENTICATION_OPERATIONS.md](../../deploy/AUTHENTICATION_OPERATIONS.md).
 
 ## Operational invariant
 
-Never restore development wholesale into production again once production may contain
+Never restore development wholesale into production after production may contain
 user data. Future source evidence flows through bundles only. A failure in one
 importer must remain visible but must not prevent the other importer from being
-attempted.
+attempted. Do not delete the previous release, backups, legacy units, or source
+archives as part of routine rollback.
 
-See [SHADOW_PRODUCTION_SPEC.md](SHADOW_PRODUCTION_SPEC.md) for the architecture and
-[deploy/SYSTEMD_SETUP.md](../../deploy/SYSTEMD_SETUP.md) for commands and rollback.
+See [SHADOW_PRODUCTION_SPEC.md](SHADOW_PRODUCTION_SPEC.md) for the separation design
+and [deploy/SYSTEMD_SETUP.md](../../deploy/SYSTEMD_SETUP.md) for live operations and
+rollback commands.

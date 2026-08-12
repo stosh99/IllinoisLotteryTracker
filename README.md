@@ -11,11 +11,13 @@ source, catalog, and analytics cutoffs.
 The canonical implementation design for the database-centric analytics phase
 is [docs/database_blueprint/README.md](docs/database_blueprint/README.md).
 Google OIDC authentication and local account/session management are implemented
-but deliberately disabled until the production release gate is complete.
+but deliberately disabled pending a separate public-authentication readiness decision.
 Personal play tracking is not built yet.
 
-Development and loopback-only shadow production are separated. One database-free
-collector feeds immutable evidence bundles to independent databases and importers.
+The public site is [illinoislotterytracker.com](https://illinoislotterytracker.com).
+Development and production are separated. One database-free collector feeds immutable
+evidence bundles to independent databases and importers; Nginx exposes only the
+loopback-bound production application over HTTPS.
 See
 [docs/environment_separation/IMPLEMENTATION_STATUS.md](docs/environment_separation/IMPLEMENTATION_STATUS.md)
 for the verified state and rollback boundary.

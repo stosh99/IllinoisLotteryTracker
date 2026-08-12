@@ -1,6 +1,8 @@
 # Development / shadow-production separation
 
-Status: implementation specification for the uncommitted shadow deployment.
+Status: historical specification for the shadow phase completed on 2026-08-11.
+The current public-production state and rollback boundary are recorded in
+[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
 
 ## Scope and safety boundary
 
