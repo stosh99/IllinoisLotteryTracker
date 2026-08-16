@@ -5,18 +5,20 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+User=stosh99
 WorkingDirectory=/home/stosh99/projects/IllinoisLotteryTracker
-EnvironmentFile=/home/stosh99/.config/illinois-lottery-tracker/collector.env
+Environment=APP_ENV=collector
+Environment=AUTH_ENABLED=false
+Environment=ILT_DISABLE_DOTENV=true
+Environment=RAW_DATA_DIR=/home/stosh99/illinois-lottery-data/source-captures
 Environment=PYTHONPATH=/home/stosh99/projects/IllinoisLotteryTracker/src
 ExecStart=/usr/bin/xvfb-run --auto-servernum \
     "--server-args=-screen 0 1920x1080x24 -nolisten tcp" \
     /usr/bin/env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 \
     /home/stosh99/projects/IllinoisLotteryTracker/.venv/bin/python \
     /home/stosh99/projects/IllinoisLotteryTracker/scripts/run_split_source_pipeline.py \
-    --development-root /home/stosh99/projects/IllinoisLotteryTracker \
-    --development-env /home/stosh99/.config/illinois-lottery-tracker/development.env \
-    --production-root /home/stosh99/apps/illinois-lottery-tracker/current \
-    --production-env /home/stosh99/.config/illinois-lottery-tracker/production.env \
+    --project-root /home/stosh99/projects/IllinoisLotteryTracker \
+    --application-env /home/stosh99/projects/IllinoisLotteryTracker/.env \
     --raw-root /home/stosh99/illinois-lottery-data/source-captures \
     --chrome-profile-dir /home/stosh99/illinois-lottery-data/browser-profile/collector \
     --chrome-force-x11 \

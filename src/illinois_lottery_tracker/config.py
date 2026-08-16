@@ -9,6 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 DEFAULT_RAW_DATA_DIR = "data/raw"
+DISABLE_DOTENV_ENV_VAR = "ILT_DISABLE_DOTENV"
 
 
 @dataclass(frozen=True)
@@ -33,9 +34,10 @@ def _project_root() -> Path:
 def load_settings(env_file: str | os.PathLike[str] | None = None) -> Settings:
     """Load settings from a .env file (if present) plus the process environment."""
     if env_file is None:
-        candidate = _project_root() / ".env"
-        if candidate.is_file():
-            load_dotenv(candidate, override=False)
+        if os.getenv(DISABLE_DOTENV_ENV_VAR) != "true":
+            candidate = _project_root() / ".env"
+            if candidate.is_file():
+                load_dotenv(candidate, override=False)
     else:
         load_dotenv(env_file, override=False)
 

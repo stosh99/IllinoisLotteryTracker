@@ -1,5 +1,12 @@
 # Development / production implementation status
 
+> **Superseded topology.** This document records the 2026-08-12 release-tree
+> deployment for historical and rollback reference. The current target topology
+> uses the official project checkout as production, has no VPS development
+> application, and is operated according to
+> [DEPLOYMENT.md](../DEPLOYMENT.md) and
+> [SYSTEMD_SETUP.md](../../deploy/SYSTEMD_SETUP.md).
+
 Status: **implemented, publicly promoted, and verified on 2026-08-12**.
 
 ## Outcome
