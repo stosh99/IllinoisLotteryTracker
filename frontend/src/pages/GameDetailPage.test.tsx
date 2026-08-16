@@ -1,12 +1,26 @@
 import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import App from "../App";
+import { tierChanceTrend } from "./GameDetailPage";
 import { gameDetailFixture } from "../test/gameDetailFixture";
 import { gameHistoryFixture } from "../test/gameHistoryFixture";
 
 describe("game detail page", () => {
+  it("uses a two-percent materiality band for tier chance changes", () => {
+    const tier = gameDetailFixture.tiers[0]!;
+
+    expect(tierChanceTrend({ ...tier, launchOneIn: 100, currentOneIn: 98 })).toBe(
+      "better",
+    );
+    expect(tierChanceTrend({ ...tier, launchOneIn: 100, currentOneIn: 102.1 })).toBe(
+      "worse",
+    );
+    expect(tierChanceTrend({ ...tier, launchOneIn: 100, currentOneIn: 99 })).toBe(
+      "same",
+    );
+  });
+
   it("lays out current game facts and every prize tier without hover", () => {
     window.history.replaceState({}, "", "/games/102");
     render(
@@ -35,19 +49,28 @@ describe("game detail page", () => {
     expect(within(dependence).getByText(/not a prediction for one ticket/i)).toBeVisible();
 
     const outcomeHeading = screen.getByRole("heading", {
-      name: "What could one ticket return?",
+      name: "What are my chances?",
     });
     const outcomeLadder = outcomeHeading.closest("section")!;
-    expect(within(outcomeLadder).getByText("Exactly money back")).toBeVisible();
-    expect(within(outcomeLadder).getByText("Any ordinary profit")).toBeVisible();
-    expect(within(outcomeLadder).getByText("At least 5× the ticket price")).toBeVisible();
-    expect(within(outcomeLadder).getByText("At least 10× the ticket price")).toBeVisible();
+    expect(within(outcomeLadder).getByText("Win any prize")).toBeVisible();
+    expect(within(outcomeLadder).getByText("Make a profit")).toBeVisible();
+    expect(within(outcomeLadder).getByText("Win at least 10×")).toBeVisible();
+    expect(within(outcomeLadder).queryByText("Without the jackpot")).not.toBeInTheDocument();
     expect(within(outcomeLadder).getByText("1 in 11.7")).toBeVisible();
     expect(within(outcomeLadder).getByText("8.55% estimated chance")).toBeVisible();
+    expect(within(outcomeLadder).getByText("1 in 43.86")).toBeVisible();
     expect(within(outcomeLadder).getByText("1 in 1,125,000")).toBeVisible();
     expect(within(outcomeLadder).getByText("0.00009% estimated chance")).toBeVisible();
-    expect(within(outcomeLadder).getByText(/do not add these three percentages/i)).toBeVisible();
+    expect(within(outcomeLadder).getByText(/do not add the percentages/i)).toBeVisible();
     expect(within(outcomeLadder).getByText("2 out of 5 left")).toBeVisible();
+    const jackpotLane = within(outcomeLadder)
+      .getByRole("heading", { name: "Top prize" })
+      .closest("aside")!;
+    expect(
+      Array.from(jackpotLane.querySelectorAll("dd, .outcome-ladder__exact strong")).map(
+        (element) => element.textContent,
+      ),
+    ).toEqual(["$500K", "2 out of 5 left", "1 in 1,125,000"]);
 
     const table = screen.getByRole("table", {
       name: /current prize tiers for Lakefront 10X/i,
@@ -64,7 +87,14 @@ describe("game detail page", () => {
     expect(within(table).getByText(/6.5 estimated pending/i)).toBeVisible();
     expect(within(table).getByText("1 in 15,679")).toBeVisible();
     expect(screen.getByText(/only to prize tiers over \$600/i)).toBeVisible();
-    expect(screen.getByText(/fewer than 300 starting prizes/i)).toBeVisible();
+    const tableGuide = screen
+      .getByText("How to read this table")
+      .closest<HTMLDivElement>(".prize-tier-note")!;
+    expect(within(tableGuide).getByText("What the data labels mean")).toBeVisible();
+    expect(
+      table.compareDocumentPosition(tableGuide) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.queryByText(/official count used/i)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Estimated tickets sold" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "Prizes claimed by tier" })).toBeVisible();
     expect(
@@ -73,14 +103,13 @@ describe("game detail page", () => {
     expect(
       screen.getByRole("img", { name: /percentage of prizes claimed/i }),
     ).toBeVisible();
-    expect(screen.getByText("About 2,750,001")).toBeVisible();
     expect(screen.getByText("4 of 4 tiers")).toBeVisible();
     expect(screen.queryByText("2.0.0")).not.toBeInTheDocument();
   });
 
   it("shows an honest unavailable state for an incomplete outcome", () => {
     const detail = structuredClone(gameDetailFixture);
-    detail.outcomes[2]!.metricStatus = "partial";
+    detail.outcomes[1]!.metricStatus = "partial";
     window.history.replaceState({}, "", "/games/102");
     render(
       <App
@@ -89,9 +118,10 @@ describe("game detail page", () => {
       />,
     );
 
-    const ordinary = screen.getByRole("heading", { name: "Ordinary profit" }).closest("div")
-      ?.parentElement?.parentElement!;
-    expect(within(ordinary).getByText("Current estimate is incomplete")).toBeVisible();
+    const profitCard = screen.getByRole("heading", { name: "Make a profit" }).closest<HTMLDivElement>(
+      ".outcome-ladder__break-even",
+    )!;
+    expect(within(profitCard).getByText("Current estimate is incomplete")).toBeVisible();
   });
 
   it("distinguishes a missing prize tier from an incomplete estimate", () => {
@@ -108,13 +138,7 @@ describe("game detail page", () => {
     expect(screen.getByText("No matching prize tier in this game")).toBeVisible();
   });
 
-  it("preserves comparison context in return and copied game links", async () => {
-    const user = userEvent.setup();
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText },
-    });
+  it("preserves comparison context in the compact return control", () => {
     window.history.replaceState(
       {},
       "",
@@ -127,15 +151,10 @@ describe("game detail page", () => {
       />,
     );
 
-    expect(screen.getByText("Returns to Overall value · $10 tickets")).toBeVisible();
     expect(screen.getByRole("link", { name: /Back to comparison/ })).toHaveAttribute(
       "href",
       "/?strategy=value_full&price=10#rankings",
     );
-    await user.click(screen.getByRole("button", { name: "Copy this game view" }));
-    expect(writeText).toHaveBeenCalledWith(
-      `${window.location.origin}/games/102?strategy=value_full&price=10`,
-    );
-    expect(screen.getByText("Game link copied.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Copy this game view" })).not.toBeInTheDocument();
   });
 });

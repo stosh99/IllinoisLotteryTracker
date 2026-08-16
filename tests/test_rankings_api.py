@@ -94,6 +94,10 @@ def _ranking_row() -> dict[str, object]:
         "top_prizes_original": 5,
         "top_prizes_remaining": 2,
         "weeks_in_market": 22,
+        "profit_ex_top_probability": Decimal("0.08"),
+        "one_in_profit_ex_top": Decimal("12.5"),
+        "ten_x_ex_top_probability": Decimal("0.01"),
+        "one_in_ten_x_ex_top": Decimal("100"),
     }
 
 
@@ -156,6 +160,10 @@ def test_available_rows_are_mapped_to_the_camel_case_frontend_contract():
             "topPrizesOriginal": 5,
             "topPrizesRemaining": 2,
             "weeksInMarket": 22,
+            "profitExTopProbability": 0.08,
+            "oneInProfitExTop": 12.5,
+            "tenXExTopProbability": 0.01,
+            "oneInTenXExTop": 100.0,
         }
     ]
     assert len(connection.statements) == 2

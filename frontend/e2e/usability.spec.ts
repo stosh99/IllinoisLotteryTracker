@@ -77,10 +77,74 @@ test.beforeEach(async ({ page }) => {
   await mockPublicPages(page);
 });
 
+test("the hero is the single player chooser and the seventh choice opens every ticket", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.getByRole("radiogroup", { name: "Choose your player type" })).toHaveCount(1);
+  await expect(page.getByRole("radiogroup", { name: "Change player type" })).toBeVisible();
+  await expect(page.getByRole("searchbox", { name: "Search tickets" })).toHaveCount(0);
+  await expect(page.getByText("Explore the comparison")).toHaveCount(0);
+  await page.getByRole("link", { name: /I can’t decide\. Show me every ticket/i }).click();
+
+  await expect(page).toHaveURL(/\/tickets$/);
+  await expect(
+    page.getByRole("heading", { name: "See every game—without choosing a player type." }),
+  ).toBeVisible();
+  await expect(page.getByRole("table", { name: /every current Illinois instant ticket/i })).toBeVisible();
+  await expect(page.locator(".ticket-directory-table tbody tr")).toHaveCount(GAME_COUNT);
+  await expect(page.locator(".ticket-directory-table tbody th strong").first()).toHaveText(
+    "Great Lakes Vault",
+  );
+
+  const filters = page.locator('[aria-label="Ticket directory filters"]');
+  await filters.getByRole("button", { name: "$10", exact: true }).click();
+  await expect(filters.getByRole("searchbox", { name: "Search tickets" })).toHaveCount(0);
+  await expect(page.locator(".ticket-directory-table tbody tr")).toHaveCount(2);
+  await expect(page.getByText("Lakefront 10X", { exact: true })).toBeVisible();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+  ).toBe(true);
+});
+
 test("comparison explains estimates and keeps the carousel counter truthful", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "Comparison ready" })).toBeVisible();
+  const viewport = page.viewportSize();
+  if (viewport && viewport.width > 860) {
+    const headerHeight = await page.locator(".site-header").evaluate(
+      (element) => element.getBoundingClientRect().height,
+    );
+    const heroHeight = await page.locator(".hero").evaluate(
+      (element) => element.getBoundingClientRect().height,
+    );
+    expect(headerHeight + heroHeight).toBeGreaterThanOrEqual(viewport.height - 1);
+
+    const compactChooser = page.getByRole("radiogroup", { name: "Change player type" });
+    expect(
+      await compactChooser.evaluate(
+        (element) => getComputedStyle(element).gridTemplateColumns.split(" ").length,
+      ),
+    ).toBe(2);
+    const filterDocumentTop = await page.locator(".ranking-filters").evaluate(
+      (element) => element.getBoundingClientRect().top + window.scrollY,
+    );
+    for (const goal of [
+      /Practical value/,
+      /Overall value/,
+      /Best chance of winning/,
+      /Best chance of profit/,
+      /10× upside/,
+      /Jackpot chase/,
+    ]) {
+      await compactChooser.getByRole("radio", { name: goal }).click();
+      await expect.poll(() => page.locator(".ranking-filters").evaluate(
+        (element) => element.getBoundingClientRect().top + window.scrollY,
+      )).toBe(filterDocumentTop);
+    }
+    await compactChooser.getByRole("radio", { name: /Practical value/ }).click();
+  }
+
+  await expect(page.getByText(/Data valid as of/i)).toBeVisible();
   await expect(page.getByText("Official report", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Calculated", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Estimate", { exact: true }).first()).toBeVisible();
@@ -94,17 +158,18 @@ test("comparison explains estimates and keeps the carousel counter truthful", as
 
   await expect(page.locator(".leader-card")).toHaveCount(GAME_COUNT);
   await expect.poll(() => carouselLabelMatchesViewport(page)).toBe(true);
+  const playerChooser = page.getByRole("radiogroup", { name: "Choose your player type" });
 
   for (const [goal, basis] of [
     [/Practical value/, /return without the top prize/],
     [/Overall value/, /return including all prizes/],
-    [/Money back/, /winning exactly the ticket price/],
-    [/Come out ahead/, /winning more than the ticket price, excluding the top prize/],
-    [/10× upside/, /winning at least 10×, excluding the top prize/],
+    [/Best chance of winning/, /winning the ticket cost or more/],
+    [/Best chance of profit/, /winning more than the ticket price/],
+    [/10× upside/, /winning at least 10× the ticket price/],
     [/Jackpot chase/, /winning the top prize/],
   ]) {
-    await page.getByRole("radio", { name: goal }).click();
-    await expect(page.getByRole("radio", { name: goal })).toBeChecked();
+    await playerChooser.getByRole("radio", { name: goal }).click();
+    await expect(playerChooser.getByRole("radio", { name: goal })).toBeChecked();
     await expect(page.locator(".leader-card__metric strong").first()).not.toHaveText("");
     await expect(page.locator(".rank-explanation").first()).toContainText(basis);
     await expect.poll(() => carouselLabelMatchesViewport(page)).toBe(true);
@@ -137,11 +202,12 @@ test("comparison explains estimates and keeps the carousel counter truthful", as
   await expect(page.locator(".leader-card")).toHaveCount(2);
   await expect.poll(() => carouselLabelMatchesViewport(page)).toBe(true);
 
-  const selectedGoal = page.getByRole("radio", { checked: true });
+  const selectedGoal = playerChooser.getByRole("radio", { checked: true });
   await selectedGoal.press("ArrowRight");
-  await expect(page.getByRole("radio", { name: /Practical value/ })).toBeChecked();
+  await expect(playerChooser.getByRole("radio", { name: /Practical value/ })).toBeChecked();
 
-  await page.getByRole("link", { name: "See how the estimates work" }).click();
+  await page.getByRole("button", { name: "Read this first" }).click();
+  await page.getByRole("link", { name: "How the estimates work" }).click();
   await expect(page.getByText(/does not mean one \$10 ticket is likely to pay \$7.42/i)).toBeVisible();
 
   expect(
@@ -153,23 +219,27 @@ test("game detail distinguishes official facts, calculations, and estimates", as
   await page.goto("/games/102");
 
   await expect(page.getByRole("heading", { name: "Lakefront 10X" })).toBeVisible();
-  await expect(page.getByText("1 in 3.92", { exact: true })).toBeVisible();
-  await expect(page.getByText("About 2,750,001", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "How much estimated return depends on the top prize?" })).toBeVisible();
-  await expect(page.getByText("74.2¢ per $1", { exact: true })).toBeVisible();
-  await expect(page.getByText("70.4¢ per $1", { exact: true })).toBeVisible();
-  await expect(page.getByText("3.8¢ per $1", { exact: true })).toBeVisible();
-  await expect(page.getByRole("img", { name: /estimated return comes from prizes below the top tier/i })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "What could one ticket return?" })).toBeVisible();
-  await expect(page.getByText("Exactly money back", { exact: true })).toBeVisible();
-  await expect(page.getByText("Any ordinary profit", { exact: true })).toBeVisible();
-  await expect(page.getByText("At least 5× the ticket price", { exact: true })).toBeVisible();
-  await expect(page.getByText("At least 10× the ticket price", { exact: true })).toBeVisible();
-  await expect(page.getByText(/do not add these three percentages/i)).toBeVisible();
+  const detailHeader = page.getByRole("region", { name: "Lakefront 10X" });
+  await expect(detailHeader.getByText("1 in 3.92", { exact: true })).toBeVisible();
+  await expect(detailHeader.getByText("1 in 3.85", { exact: true })).toBeVisible();
+  const dependence = page.getByRole("region", {
+    name: "How much estimated return depends on the top prize?",
+  });
+  await expect(dependence).toBeVisible();
+  await expect(dependence.getByText("74.2¢ per $1", { exact: true })).toBeVisible();
+  await expect(dependence.getByText("70.4¢ per $1", { exact: true })).toBeVisible();
+  await expect(dependence.getByText("3.8¢ per $1", { exact: true })).toBeVisible();
+  await expect(dependence.getByRole("img", { name: /estimated return comes from prizes below the top tier/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "What are my chances?" })).toBeVisible();
+  await expect(page.getByText("Win any prize", { exact: true })).toBeVisible();
+  await expect(page.getByText("Make a profit", { exact: true })).toBeVisible();
+  await expect(page.getByText("Win at least 10×", { exact: true })).toBeVisible();
+  await expect(page.getByText("Without the jackpot", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/do not add the percentages/i)).toBeVisible();
   await expect(page.getByText("0.00009% estimated chance", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Every prize tier, in one view" })).toBeVisible();
   await expect(page.getByText("24-day working assumption", { exact: false }).first()).toBeVisible();
-  await expect(page.getByText("fewer than 300 starting prizes", { exact: false })).toBeVisible();
+  await expect(page.getByText("Official count used", { exact: false })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Estimated tickets sold" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Prizes claimed by tier" })).toBeVisible();
   await expect(page.getByText(/model version/i)).toHaveCount(0);
@@ -185,7 +255,7 @@ test("game detail distinguishes official facts, calculations, and estimates", as
 
   await page.getByRole("link", { name: "Back to comparison" }).focus();
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("heading", { name: "Comparison ready" })).toBeVisible();
+  await expect(page.getByText(/Data valid as of/i)).toBeVisible();
 });
 
 test("configured comparison state survives history, detail navigation, and sharing", async ({ page, context }) => {
@@ -194,21 +264,22 @@ test("configured comparison state survives history, detail navigation, and shari
   });
   await page.goto("/?strategy=value_full&price=10#rankings");
 
-  await expect(page.getByRole("radio", { name: /Overall value/ })).toBeChecked();
+  const playerChooser = page.getByRole("radiogroup", { name: "Choose your player type" });
+  await expect(playerChooser.getByRole("radio", { name: /Overall value/ })).toBeChecked();
   await expect(page.getByRole("button", { name: "$10", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
   await page.reload();
-  await expect(page.getByRole("radio", { name: /Overall value/ })).toBeChecked();
+  await expect(playerChooser.getByRole("radio", { name: /Overall value/ })).toBeChecked();
 
-  await page.getByRole("radio", { name: /Money back/ }).click();
-  await expect(page).toHaveURL(/strategy=money_back_exact&price=10/);
+  await playerChooser.getByRole("radio", { name: /Best chance of winning/ }).click();
+  await expect(page).toHaveURL(/strategy=any_win&price=10/);
   await page.goBack();
-  await expect(page.getByRole("radio", { name: /Overall value/ })).toBeChecked();
+  await expect(playerChooser.getByRole("radio", { name: /Overall value/ })).toBeChecked();
   await expect(page).toHaveURL(/strategy=value_full&price=10/);
   await page.goForward();
-  await expect(page.getByRole("radio", { name: /Money back/ })).toBeChecked();
+  await expect(playerChooser.getByRole("radio", { name: /Best chance of winning/ })).toBeChecked();
   await page.goBack();
 
   const lakefront = page.getByRole("link", { name: "View details for Lakefront 10X" }).first();
@@ -218,21 +289,14 @@ test("configured comparison state survives history, detail navigation, and shari
   );
   await lakefront.click();
   await expect(page).toHaveURL(/\/games\/102\?strategy=value_full&price=10$/);
-  await expect(page.getByText("Returns to Overall value · $10 tickets")).toBeVisible();
-  await expect(page.locator(".site-header nav a").filter({ hasText: "Compare games" })).toHaveAttribute(
+  await expect(page.locator(".site-header nav a").filter({ hasText: "All tickets" })).toHaveAttribute(
     "href",
-    "/?strategy=value_full&price=10#rankings",
-  );
-
-  await page.getByRole("button", { name: "Copy this game view" }).click();
-  await expect(page.getByText("Game link copied.")).toBeVisible();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-    "http://127.0.0.1:4173/games/102?strategy=value_full&price=10",
+    "/tickets",
   );
 
   await page.getByRole("link", { name: "Back to comparison" }).click();
   await expect(page).toHaveURL(/\?strategy=value_full&price=10#rankings$/);
-  await expect(page.getByRole("radio", { name: /Overall value/ })).toBeChecked();
+  await expect(playerChooser.getByRole("radio", { name: /Overall value/ })).toBeChecked();
   await expect(page.getByRole("button", { name: "$10", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -251,7 +315,10 @@ test("invalid public state falls back and copies a canonical default link", asyn
   });
   await page.goto("/?strategy=secret_score&price=-10&private=discard-me");
 
-  await expect(page.getByRole("radio", { name: /Practical value/ })).toBeChecked();
+  await expect(
+    page.getByRole("radiogroup", { name: "Choose your player type" })
+      .getByRole("radio", { name: /Practical value/ }),
+  ).toBeChecked();
   await expect(page.getByRole("button", { name: "All", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -276,7 +343,7 @@ test("paused comparison uses player language and hides internal reason codes", a
   );
 
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Current comparison paused" })).toBeVisible();
+  await expect(page.getByRole("status").getByText("COMPARISON PAUSED", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "The official prize counts are out of date" })).toBeVisible();
   await expect(page.getByText("SOURCE_STALE", { exact: true })).toHaveCount(0);
 });

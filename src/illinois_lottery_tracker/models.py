@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
@@ -19,6 +20,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Uuid,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -433,4 +435,45 @@ class MetadataAttempt(Base):
             "'fetch_failed', 'parse_failed', 'not_due')",
             name="ck_metadata_attempt_outcome",
         ),
+    )
+
+
+class UserTicketEntry(Base):
+    """One user-owned record of tickets played together for the same game."""
+
+    __tablename__ = "user_ticket_entries"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False
+    )
+    game_id: Mapped[int] = mapped_column(
+        ForeignKey("games.id", ondelete="RESTRICT"), nullable=False
+    )
+    game_number: Mapped[str] = mapped_column(String(32), nullable=False)
+    game_name: Mapped[str] = mapped_column(Text, nullable=False)
+    ticket_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    played_on: Mapped[date] = mapped_column(Date, nullable=False)
+    ticket_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount_won: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint("ticket_price > 0", name="ck_user_ticket_entries_price_positive"),
+        CheckConstraint(
+            "ticket_count > 0 AND ticket_count <= 1000",
+            name="ck_user_ticket_entries_count_range",
+        ),
+        CheckConstraint(
+            "amount_won >= 0 AND amount_won <= 1000000000",
+            name="ck_user_ticket_entries_winnings_range",
+        ),
+        CheckConstraint("updated_at >= created_at", name="ck_user_ticket_entries_updated_at"),
+        Index("ix_user_ticket_entries_user_played", "user_id", "played_on", "created_at"),
+        Index("ix_user_ticket_entries_game", "game_id"),
     )

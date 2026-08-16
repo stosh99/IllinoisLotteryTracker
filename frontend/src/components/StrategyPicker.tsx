@@ -4,11 +4,20 @@ import type { StrategyKey } from "../types/rankings";
 interface StrategyPickerProps {
   selected: StrategyKey;
   onSelect: (strategy: StrategyKey) => void;
+  variant?: "hero" | "tabs";
 }
 
-export function StrategyPicker({ selected, onSelect }: StrategyPickerProps) {
+export function StrategyPicker({
+  selected,
+  onSelect,
+  variant = "hero",
+}: StrategyPickerProps) {
   return (
-    <div className="strategy-picker" role="radiogroup" aria-label="Comparison goal">
+    <div
+      className={`strategy-picker strategy-picker--${variant}`}
+      role="radiogroup"
+      aria-label={variant === "hero" ? "Choose your player type" : "Change player type"}
+    >
       {PRIMARY_STRATEGIES.map((strategy, index) => (
         <button
           className="strategy-option"
@@ -34,7 +43,7 @@ export function StrategyPicker({ selected, onSelect }: StrategyPickerProps) {
           <span className="strategy-option__number">0{index + 1}</span>
           <span>
             <strong>{strategy.shortLabel}</strong>
-            <small>{strategy.label}</small>
+            {variant === "hero" ? <small>{strategy.label}</small> : null}
           </span>
         </button>
       ))}

@@ -79,6 +79,12 @@ export function assertGameDetail(document: unknown): GameDetail {
       1,
       false,
     ),
+    estimatedCurrentOverallOddsOneIn: optionalNumber(
+      document,
+      "estimatedCurrentOverallOddsOneIn",
+      1,
+      false,
+    ),
     estimatedOriginalTickets: optionalNumber(document, "estimatedOriginalTickets", 0),
     estimatedSoldTickets: optionalNumber(document, "estimatedSoldTickets", 0),
     estimatedRemainingTickets: optionalNumber(document, "estimatedRemainingTickets", 0),

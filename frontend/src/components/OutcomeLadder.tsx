@@ -1,5 +1,3 @@
-import type { CSSProperties } from "react";
-
 import { buildOutcomeRows, formatOutcomeProbability } from "../lib/outcomeLadder";
 import { formatMoney, formatOneIn } from "../lib/strategies";
 import type { GameDetail, OutcomeMetricStatus } from "../types/gameDetails";
@@ -8,8 +6,9 @@ import { formatRemainingCount } from "./LeaderCards";
 
 export function OutcomeLadder({ detail }: { detail: GameDetail }) {
   const rows = buildOutcomeRows(detail.outcomes);
-  const breakEven = rows.find(({ lane }) => lane === "break-even")!;
-  const ordinary = rows.filter(({ lane }) => lane === "ordinary");
+  const anyWin = rows.find(({ key }) => key === "any_win")!;
+  const profit = rows.find(({ key }) => key === "profit_full")!;
+  const tenX = rows.find(({ key }) => key === "moderate_10x_full")!;
   const jackpot = rows.find(({ lane }) => lane === "jackpot")!;
 
   return (
@@ -17,45 +16,22 @@ export function OutcomeLadder({ detail }: { detail: GameDetail }) {
       <div className="outcome-ladder__heading">
         <div>
           <p className="eyebrow">OUTCOME LADDER</p>
-          <h2 id="outcome-ladder-title">What could one ticket return?</h2>
+          <h2 id="outcome-ladder-title">What are my chances?</h2>
         </div>
-        <p>Estimated current chances · values stay visible without hover</p>
+        <p>Three different ways to define a winning ticket</p>
       </div>
 
       <div className="outcome-ladder__layout">
         <div className="outcome-ladder__main">
-          <OutcomeCard row={breakEven} />
-
-          <div className="outcome-ladder__ordinary" aria-labelledby="ordinary-outcomes-title">
-            <div className="outcome-ladder__lane-heading">
-              <div>
-                <h3 id="ordinary-outcomes-title">Ordinary profit</h3>
-                <p>These thresholds exclude the top-prize tier.</p>
-              </div>
-              <EvidenceTag kind="estimated" />
-            </div>
-            <ol aria-label="Nested ordinary-profit outcomes">
-              {ordinary.map((row) => (
-                <li key={row.key} style={{ "--outcome-depth": row.depth } as CSSProperties}>
-                  <OutcomeValues row={row} />
-                  <div className="outcome-ladder__track" aria-hidden="true">
-                    <span style={{ width: `${row.relativeWidth}%` }} />
-                  </div>
-                </li>
-              ))}
-            </ol>
-            <p className="outcome-ladder__relationship-note">
-              <strong>Read these as nested chances.</strong> A 10× prize also counts
-              as 5× and as a profit, so do not add these three percentages together.
-            </p>
-          </div>
+          <OutcomeCard row={anyWin} eyebrow="ANY PRIZE" />
+          <OutcomeCard row={profit} eyebrow="COME OUT AHEAD" />
+          <OutcomeCard row={tenX} eyebrow="10× UPSIDE" />
         </div>
 
         <aside className="outcome-ladder__jackpot" aria-labelledby="jackpot-outcome-title">
           <p className="eyebrow">SEPARATE JACKPOT LANE</p>
           <h3 id="jackpot-outcome-title">{jackpot.label}</h3>
           <p>{jackpot.definition}</p>
-          <OutcomeExactValues row={jackpot} />
           <dl>
             <div>
               <dt>Top prize amount</dt>
@@ -71,13 +47,15 @@ export function OutcomeLadder({ detail }: { detail: GameDetail }) {
               </dd>
             </div>
           </dl>
+          <OutcomeExactValues row={jackpot} />
           <EvidenceTag kind="estimated" />
         </aside>
       </div>
 
       <p className="outcome-ladder__caveat">
-        These chances use estimated tickets remaining and describe the game—not
-        what the next ticket will do. “Exactly money back” is break-even, not profit.
+        These are nested chances: a 10× prize also counts as a profit and as any
+        prize, so do not add the percentages together. Estimates describe the game,
+        not what the next ticket will do.
       </p>
     </section>
   );
@@ -92,28 +70,22 @@ interface OutcomeRowView {
   metricStatus: OutcomeMetricStatus;
 }
 
-function OutcomeCard({ row }: { row: OutcomeRowView }) {
+function OutcomeCard({
+  row,
+  eyebrow,
+}: {
+  row: OutcomeRowView;
+  eyebrow: string;
+}) {
   return (
     <div className="outcome-ladder__break-even">
       <div>
-        <p className="eyebrow">BREAK EVEN</p>
+        <p className="eyebrow">{eyebrow}</p>
         <h3>{row.label}</h3>
         <p>{row.definition}</p>
       </div>
       <OutcomeExactValues row={row} />
       <EvidenceTag kind="estimated" />
-    </div>
-  );
-}
-
-function OutcomeValues({ row }: { row: OutcomeRowView }) {
-  return (
-    <div className="outcome-ladder__row-values">
-      <div>
-        <strong>{row.label}</strong>
-        <small>{row.definition}</small>
-      </div>
-      <OutcomeExactValues row={row} />
     </div>
   );
 }

@@ -4,7 +4,7 @@ import type {
   OutcomeMetricStatus,
 } from "../types/gameDetails";
 
-export type OutcomeLane = "break-even" | "ordinary" | "jackpot";
+export type OutcomeLane = "primary" | "supporting" | "jackpot";
 
 export interface OutcomeDefinition {
   key: OutcomeKey;
@@ -24,32 +24,39 @@ export interface OutcomeRow extends OutcomeDefinition {
 
 export const OUTCOME_DEFINITIONS: readonly OutcomeDefinition[] = [
   {
-    key: "money_back_exact",
-    label: "Exactly money back",
-    definition: "Win the ticket price—no profit and no loss.",
-    lane: "break-even",
+    key: "any_win",
+    label: "Win any prize",
+    definition: "Win the ticket price or more.",
+    lane: "primary",
+    depth: 0,
+  },
+  {
+    key: "profit_full",
+    label: "Make a profit",
+    definition: "Win more than the ticket price, including the jackpot.",
+    lane: "primary",
     depth: 0,
   },
   {
     key: "profit_ex_top",
-    label: "Any ordinary profit",
-    definition: "Win more than the ticket price, excluding the top prize.",
-    lane: "ordinary",
+    label: "Profit without the jackpot",
+    definition: "Win more than the ticket price from any non-jackpot tier.",
+    lane: "supporting",
     depth: 0,
   },
   {
-    key: "moderate_5x",
-    label: "At least 5× the ticket price",
-    definition: "An ordinary prize of at least five times the ticket price.",
-    lane: "ordinary",
-    depth: 1,
+    key: "moderate_10x_full",
+    label: "Win at least 10×",
+    definition: "Win at least ten times the ticket price, including the jackpot.",
+    lane: "primary",
+    depth: 0,
   },
   {
-    key: "moderate_10x",
-    label: "At least 10× the ticket price",
-    definition: "An ordinary prize of at least ten times the ticket price.",
-    lane: "ordinary",
-    depth: 2,
+    key: "moderate_10x_ex_top",
+    label: "10× without the jackpot",
+    definition: "Win at least ten times the ticket price from a non-jackpot tier.",
+    lane: "supporting",
+    depth: 0,
   },
   {
     key: "jackpot_top_odds",
@@ -62,8 +69,8 @@ export const OUTCOME_DEFINITIONS: readonly OutcomeDefinition[] = [
 
 export function buildOutcomeRows(metrics: GameOutcomeMetric[]): OutcomeRow[] {
   const byKey = new Map(metrics.map((metric) => [metric.outcomeKey, metric]));
-  const maximumOrdinaryProbability = OUTCOME_DEFINITIONS
-    .filter(({ lane }) => lane === "ordinary")
+  const maximumPrimaryProbability = OUTCOME_DEFINITIONS
+    .filter(({ lane }) => lane === "primary")
     .reduce((maximum, { key }) => {
       const metric = byKey.get(key);
       return isCompleteMetric(metric)
@@ -84,9 +91,9 @@ export function buildOutcomeRows(metrics: GameOutcomeMetric[]): OutcomeRow[] {
       relativeWidth:
         available &&
         probability !== null &&
-        definition.lane === "ordinary" &&
-        maximumOrdinaryProbability > 0
-          ? Math.max(2, Math.min(100, (probability / maximumOrdinaryProbability) * 100))
+        definition.lane === "primary" &&
+        maximumPrimaryProbability > 0
+          ? Math.max(2, Math.min(100, (probability / maximumPrimaryProbability) * 100))
           : 0,
     };
   });

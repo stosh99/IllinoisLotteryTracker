@@ -110,12 +110,12 @@ function rankingBasis(strategyKey: StrategyKey): string {
       return "estimated return without the top prize";
     case "value_full":
       return "estimated return including all prizes";
-    case "money_back_exact":
-      return "the estimated chance of winning exactly the ticket price";
-    case "profit_ex_top":
-      return "the estimated chance of winning more than the ticket price, excluding the top prize";
-    case "moderate_10x":
-      return "the estimated chance of winning at least 10×, excluding the top prize";
+    case "any_win":
+      return "the estimated chance of winning the ticket cost or more";
+    case "profit_full":
+      return "the estimated chance of winning more than the ticket price";
+    case "moderate_10x_full":
+      return "the estimated chance of winning at least 10× the ticket price";
     case "jackpot_top_odds":
       return "the estimated chance of winning the top prize";
     default:

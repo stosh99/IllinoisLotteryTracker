@@ -23,7 +23,8 @@ export function AccountMenu() {
         <summary>Account</summary>
         <div className="account-menu__panel">
           <span className="account-menu__email">{state.session.user.email}</span>
-          <Link to="/account">Manage sessions</Link>
+          <Link to="/account#ticket-history">My ticket history</Link>
+          <Link to="/account#account-security">Account settings</Link>
           <button onClick={() => void signOut()} type="button">
             Sign out
           </button>

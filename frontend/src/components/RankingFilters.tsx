@@ -1,18 +1,20 @@
 import type { TicketPriceFilter } from "../types/rankings";
 
 interface RankingFiltersProps {
+  ariaLabel?: string;
   prices: number[];
   ticketPrice: TicketPriceFilter;
   onTicketPriceChange: (price: TicketPriceFilter) => void;
 }
 
 export function RankingFilters({
+  ariaLabel = "Ranking filters",
   prices,
   ticketPrice,
   onTicketPriceChange,
 }: RankingFiltersProps) {
   return (
-    <div className="ranking-filters" aria-label="Ranking filters">
+    <div className="ranking-filters" aria-label={ariaLabel}>
       <div className="price-filter">
         <span className="filter-label">Ticket price</span>
         <div className="price-filter__options">

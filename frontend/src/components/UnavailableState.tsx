@@ -3,7 +3,7 @@ import type { RankingReasonCode } from "../types/rankings";
 const messages: Record<RankingReasonCode, { title: string; detail: string }> = {
   AVAILABLE: {
     title: "No complete rows match these filters",
-    detail: "Reset the ticket-price filter to widen the comparison.",
+    detail: "Clear the ticket search or reset the ticket-price filter to widen the comparison.",
   },
   ANALYTICS_MODEL_UNAVAILABLE: {
     title: "We cannot calculate a trustworthy comparison right now",

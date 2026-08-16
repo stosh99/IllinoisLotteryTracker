@@ -14,58 +14,58 @@ export const PRIMARY_STRATEGIES: readonly StrategyDefinition[] = [
   {
     key: "value_ex_top",
     shortLabel: "Practical value",
-    label: "Value without the top prize",
-    question: "What looks strongest without the jackpot doing all the work?",
+    label: "Best value without relying on the jackpot",
+    question: "Which tickets give me the best value without relying on the jackpot?",
     explanation:
-      "Compares the estimated long-run prize return after removing each game's largest prize tier.",
+      "Ranks estimated long-run prize return after removing each game's largest prize tier, while keeping the all-prize result visible.",
     metricLabel: "Estimated return without the top prize",
     kind: "ratio",
   },
   {
     key: "value_full",
     shortLabel: "Overall value",
-    label: "Overall estimated value",
-    question: "Which games retain the most estimated prize value per dollar?",
+    label: "Best value when every prize is included",
+    question: "Which tickets give me the best value when every prize is included?",
     explanation:
-      "Compares the estimated long-run prize return from every available prize tier, including the top prize.",
+      "Ranks estimated long-run prize return from every available prize tier, including the jackpot.",
     metricLabel: "Estimated return including all prizes",
     kind: "ratio",
   },
   {
-    key: "money_back_exact",
-    shortLabel: "Money back",
-    label: "Chance to get the ticket cost back",
-    question: "Which games offer the strongest estimated break-even chance?",
+    key: "any_win",
+    shortLabel: "Best chance of winning",
+    label: "Chance of winning any prize",
+    question: "Which tickets give me the best chance of winning any prize?",
     explanation:
-      "Compares the estimated chance of winning exactly the ticket price—not a profit.",
-    metricLabel: "Estimated chance of exactly money back",
+      "Ranks the estimated chance of winning the ticket cost or more. Illinois games in the current data have no below-cost prize tiers.",
+    metricLabel: "Estimated chance of any prize",
     kind: "probability",
   },
   {
-    key: "profit_ex_top",
-    shortLabel: "Come out ahead",
-    label: "Chance of a non-jackpot profit",
-    question: "Where is a non-jackpot profit most likely?",
+    key: "profit_full",
+    shortLabel: "Best chance of profit",
+    label: "Chance of winning more than the ticket costs",
+    question: "Which tickets give me the best chance of winning more than they cost?",
     explanation:
-      "Compares the estimated chance of winning more than the ticket price, excluding the top-prize tier.",
-    metricLabel: "Estimated chance of a profit, excluding top prize",
+      "Ranks the estimated chance of a prize greater than the ticket price, including the jackpot; the non-jackpot chance stays visible.",
+    metricLabel: "Estimated chance of a profit",
     kind: "probability",
   },
   {
-    key: "moderate_10x",
+    key: "moderate_10x_full",
     shortLabel: "10× upside",
-    label: "Moderate upside without the top prize",
-    question: "Where does a meaningful, non-jackpot win appear most likely?",
+    label: "Chance of winning at least 10× the ticket price",
+    question: "Which tickets give me the best chance of winning at least 10× the price?",
     explanation:
-      "Compares the estimated chance of winning at least 10× the ticket price, excluding the top tier.",
+      "Ranks every prize worth at least ten times the ticket price, including the jackpot; the non-jackpot chance stays visible.",
     metricLabel: "Estimated chance of 10× or more",
     kind: "probability",
   },
   {
     key: "jackpot_top_odds",
     shortLabel: "Jackpot chase",
-    label: "Top-prize odds",
-    question: "Which current top prize has the strongest estimated odds?",
+    label: "Chance of winning the top prize",
+    question: "Which tickets give me the best chance of winning the top prize?",
     explanation:
       "Compares estimated top-prize chances while keeping the official remaining count visible.",
     metricLabel: "Estimated chance of the top prize",
@@ -76,10 +76,7 @@ export const PRIMARY_STRATEGIES: readonly StrategyDefinition[] = [
 export const DEFAULT_STRATEGY: StrategyKey = "value_ex_top";
 
 const EX_TOP_EV_STRATEGIES = new Set<StrategyKey>([
-  "profit_ex_top",
   "value_ex_top",
-  "moderate_5x",
-  "moderate_10x",
 ]);
 
 export function getStrategy(key: StrategyKey): StrategyDefinition {
@@ -162,6 +159,12 @@ export function getSupportingEv(record: RankingRecord): {
   value: number | null;
 } {
   if (EX_TOP_EV_STRATEGIES.has(record.strategyKey)) {
+    return {
+      label: "Est. return, all prizes",
+      value: record.estimatedEvFull,
+    };
+  }
+  if (record.strategyKey === "value_full") {
     return {
       label: "Est. return, without top prize",
       value: record.estimatedEvExTop,

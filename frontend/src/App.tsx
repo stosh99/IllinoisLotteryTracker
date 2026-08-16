@@ -3,25 +3,32 @@ import { BrowserRouter, Outlet, Route, Routes, useLocation } from "react-router-
 
 import { AuthResultNotice } from "./components/AuthResultNotice";
 import { BrandMark } from "./components/BrandMark";
-import { DataStatus } from "./components/DataStatus";
 import { EvidenceGuide, EvidenceTag } from "./components/EvidenceGuide";
+import { HeaderDataStamp } from "./components/HeaderDataStamp";
 import { LeaderCards } from "./components/LeaderCards";
+import { ReadFirstPopover } from "./components/ReadFirstPopover";
 import { RankingFilters } from "./components/RankingFilters";
 import { RankingsTable } from "./components/RankingsTable";
 import { ShareLinkButton } from "./components/ShareLinkButton";
 import { SignInControl } from "./components/SignInControl";
 import { StrategyPicker } from "./components/StrategyPicker";
+import { TicketFinder } from "./components/TicketFinder";
 import { UnavailableState } from "./components/UnavailableState";
 import { AuthSessionProvider } from "./context/AuthSessionProvider";
+import { SiteDataProvider, useSiteData } from "./context/SiteDataProvider";
 import { useRankingViewState } from "./hooks/useRankingViewState";
 import { getStrategy } from "./lib/strategies";
 import { comparisonHref, DEFAULT_VIEW_STATE, parseViewState } from "./lib/urlState";
 import { AccountPage } from "./pages/AccountPage";
+import { AllTicketsPage } from "./pages/AllTicketsPage";
 import { GameDetailPage } from "./pages/GameDetailPage";
-import { loadRankingDataset } from "./services/rankings";
 import type { GameDetail } from "./types/gameDetails";
 import type { GameHistory } from "./types/gameHistory";
-import type { RankingDataset, RankingRecord } from "./types/rankings";
+import type {
+  RankingDataset,
+  RankingRecord,
+  RankingViewState,
+} from "./types/rankings";
 
 interface AppProps {
   datasetOverride?: RankingDataset;
@@ -35,21 +42,24 @@ export default function App({ datasetOverride, gameDetailOverride, gameHistoryOv
   return (
     <BrowserRouter>
       <AuthSessionProvider>
-        <Routes>
-          <Route element={<SiteLayout />}>
-            <Route index element={<RankingPage datasetOverride={datasetOverride} />} />
-            <Route
-              path="games/:gameId"
-              element={
-                <GameDetailPage
-                  detailOverride={gameDetailOverride}
-                  historyOverride={gameHistoryOverride}
-                />
-              }
-            />
-            <Route path="account" element={<AccountPage />} />
-          </Route>
-        </Routes>
+        <SiteDataProvider datasetOverride={datasetOverride}>
+          <Routes>
+            <Route element={<SiteLayout />}>
+              <Route index element={<RankingPage />} />
+              <Route
+                path="games/:gameId"
+                element={
+                  <GameDetailPage
+                    detailOverride={gameDetailOverride}
+                    historyOverride={gameHistoryOverride}
+                  />
+                }
+              />
+              <Route path="account" element={<AccountPage />} />
+              <Route path="tickets" element={<AllTicketsPage />} />
+            </Route>
+          </Routes>
+        </SiteDataProvider>
       </AuthSessionProvider>
     </BrowserRouter>
   );
@@ -66,44 +76,39 @@ function SiteLayout() {
   );
 }
 
-function RankingPage({ datasetOverride }: AppProps) {
-  const [dataset, setDataset] = useState<RankingDataset | null>(datasetOverride ?? null);
-  const [error, setError] = useState<string | null>(null);
-  const [requestVersion, setRequestVersion] = useState(0);
-
-  useEffect(() => {
-    if (datasetOverride) {
-      setDataset(datasetOverride);
-      return;
-    }
-    const controller = new AbortController();
-    setError(null);
-    loadRankingDataset(controller.signal)
-      .then(setDataset)
-      .catch((reason: unknown) => {
-        if (!controller.signal.aborted) {
-          setError(reason instanceof Error ? reason.message : "Ranking data failed to load.");
-        }
-      });
-    return () => controller.abort();
-  }, [datasetOverride, requestVersion]);
+function RankingPage() {
+  const { dataset, error, retry } = useSiteData();
+  const [viewState, updateViewState] = useRankingViewState();
 
   return (
     <main id="main-content">
-      <Hero />
-      <CaveatStrip />
-      {dataset ? <DataStatus dataset={dataset} /> : null}
+      <Hero
+        viewState={viewState}
+        onSelectStrategy={(strategy) => {
+          updateViewState({ strategy });
+          window.requestAnimationFrame(() => {
+            const rankings = document.getElementById("rankings");
+            if (rankings && typeof rankings.scrollIntoView === "function") {
+              rankings.scrollIntoView({ behavior: "smooth" });
+            }
+          });
+        }}
+      />
       {error ? (
         <section className="load-state" aria-live="polite">
           <p className="eyebrow">DATA CONNECTION</p>
           <h2>We could not load the comparison.</h2>
           <p>{error}</p>
-          <button className="button" onClick={() => setRequestVersion((value) => value + 1)}>
+          <button className="button" onClick={retry}>
             Try again
           </button>
         </section>
       ) : dataset ? (
-        <RankingExperience dataset={dataset} />
+        <RankingExperience
+          dataset={dataset}
+          viewState={viewState}
+          updateViewState={updateViewState}
+        />
       ) : (
         <section className="load-state" aria-live="polite">
           <span className="loading-line" />
@@ -115,8 +120,15 @@ function RankingPage({ datasetOverride }: AppProps) {
   );
 }
 
-function RankingExperience({ dataset }: { dataset: RankingDataset }) {
-  const [viewState, updateViewState] = useRankingViewState();
+function RankingExperience({
+  dataset,
+  viewState,
+  updateViewState,
+}: {
+  dataset: RankingDataset;
+  viewState: RankingViewState;
+  updateViewState: (patch: Partial<RankingViewState>) => void;
+}) {
   const [visibleRowCount, setVisibleRowCount] = useState(RANKING_PAGE_SIZE);
   const strategy = getStrategy(viewState.strategy);
   const strategyRows = useMemo(
@@ -146,24 +158,20 @@ function RankingExperience({ dataset }: { dataset: RankingDataset }) {
 
   return (
     <>
-      <section className="comparison-controls" id="rankings" aria-labelledby="comparison-title">
-        <div className="section-heading">
-          <p className="eyebrow">CHOOSE YOUR QUESTION</p>
-          <h2 id="comparison-title">There is no universal “best” ticket.</h2>
-          <p>Start with the outcome you care about, then compare like with like.</p>
-        </div>
-        <StrategyPicker
-          selected={viewState.strategy}
-          onSelect={(selected) => updateViewState({ strategy: selected })}
-        />
-      </section>
-
-      <section className="ranking-section" aria-labelledby="ranking-insight-title">
+      <section className="ranking-section" id="rankings" aria-labelledby="ranking-insight-title">
         <div className="ranking-section__heading">
           <div>
             <p className="eyebrow">CURRENT VIEW</p>
             <h2 id="ranking-insight-title">{strategy.question}</h2>
             <p>{strategy.explanation}</p>
+          </div>
+          <div className="ranking-strategy-control">
+            <span>Change player type</span>
+            <StrategyPicker
+              variant="tabs"
+              selected={viewState.strategy}
+              onSelect={(selected) => updateViewState({ strategy: selected })}
+            />
           </div>
         </div>
 
@@ -188,10 +196,10 @@ function RankingExperience({ dataset }: { dataset: RankingDataset }) {
               filteredByPrice={viewState.ticketPrice !== "all"}
               viewState={viewState}
             />
-            <div className="all-rankings-heading">
+            <div className="all-rankings-heading" id="all-tickets">
               <div>
-                <p className="eyebrow">FULL COMPARISON</p>
-                <h3>Complete results in this view</h3>
+                <p className="eyebrow">ALL TICKETS</p>
+                <h3>Every ticket for this question</h3>
               </div>
               <p>
                 Values stay visible without hover. Rank ties share the same number.
@@ -238,69 +246,72 @@ function RankingExperience({ dataset }: { dataset: RankingDataset }) {
 function SiteHeader() {
   const location = useLocation();
   const viewState = parseViewState(location.search);
+  const { dataset } = useSiteData();
   return (
     <header className="site-header">
-      <a className="brand" href="/" aria-label="Illinois Lottery Tracker home">
-        <BrandMark />
-        <span>
-          <strong>Illinois</strong>
-          <small>Lottery Tracker</small>
-        </span>
-      </a>
+      <div className="site-header__left">
+        <div className="site-header__brand-group">
+          <a className="brand" href="/" aria-label="Illinois Lottery Tracker home">
+            <BrandMark />
+            <span>
+              <strong>Illinois</strong>
+              <small>Lottery Tracker</small>
+            </span>
+          </a>
+          <HeaderDataStamp dataset={dataset} />
+        </div>
+        <ReadFirstPopover />
+      </div>
       <nav aria-label="Primary navigation">
-        <a href={comparisonHref(viewState)}>Compare games</a>
+        <a href={comparisonHref(viewState, "#player-types")}>Player types</a>
+        <a href="/tickets">All tickets</a>
         <a href={comparisonHref(viewState, "#methodology")}>Methodology</a>
-        <a href={comparisonHref(viewState, "#data-status")}>Data status</a>
       </nav>
-      <SignInControl />
+      <div className="site-header__account">
+        <SignInControl />
+      </div>
+      <TicketFinder dataset={dataset} />
     </header>
   );
 }
 
-function Hero() {
+function Hero({
+  viewState,
+  onSelectStrategy,
+}: {
+  viewState: RankingViewState;
+  onSelectStrategy: (strategy: RankingViewState["strategy"]) => void;
+}) {
   return (
     <section className="hero" id="top">
       <div className="hero__copy">
         <p className="eyebrow">ILLINOIS INSTANT TICKETS · PUBLIC DATA</p>
         <h1>
           Compare the prize pool.
-          <span>Keep the caveats.</span>
+          <span>Understand the odds.</span>
         </h1>
         <p className="hero__lede">
-          A clearer way to compare current instant-ticket games by estimated value,
-          money-back chance, moderate upside, or jackpot odds—without pretending any
-          ticket is a sure thing.
+          Compare current Illinois instant tickets using the outcome that matters most
+          to you. Every ranking shows the estimate behind it and what changes when the
+          jackpot is removed.
         </p>
-        <div className="hero__actions">
-          <a className="button" href="#rankings">Explore the comparison</a>
-          <a className="text-link" href="#methodology">See how the estimates work →</a>
-        </div>
       </div>
-      <aside className="hero-card" aria-label="What this site promises">
-        <p className="hero-card__kicker">THE PRODUCT PROMISE</p>
-        <blockquote>
-          “Make public lottery data easier to understand—never promise a winning ticket.”
-        </blockquote>
-        <ul>
-          <li><span aria-hidden="true">01</span> One transparent metric per ranking</li>
-          <li><span aria-hidden="true">02</span> Source date and estimate type always visible</li>
-          <li><span aria-hidden="true">03</span> Partial or stale results never ranked</li>
-        </ul>
+      <aside className="hero-player-types" id="player-types" aria-labelledby="player-types-title">
+        <p className="eyebrow">START HERE</p>
+        <h2 id="player-types-title">What type of player are you?</h2>
+        <p>Choose the question that sounds most like you.</p>
+        <StrategyPicker
+          variant="hero"
+          selected={viewState.strategy}
+          onSelect={onSelectStrategy}
+        />
+        <a className="hero-all-tickets" href="/tickets">
+          <span>Not sure yet?</span>
+          <strong>I can’t decide. Show me every ticket.</strong>
+          <small>Browse every current game without choosing a player type.</small>
+        </a>
       </aside>
     </section>
-  );
-}
-
-function CaveatStrip() {
-  return (
-    <aside className="caveat-strip" aria-label="Important estimate caveat">
-      <strong>Read this first</strong>
-      <p>
-        Estimates describe game-wide averages—not the next ticket. Official unclaimed
-        counts can include sold winners that have not yet been processed as claimed.
-      </p>
-      <a href="#methodology">How estimates work</a>
-    </aside>
   );
 }
 

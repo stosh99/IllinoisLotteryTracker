@@ -14,10 +14,11 @@ AdjustmentStatus = Literal["applied", "reported_only", "reference_unavailable"]
 TierStatus = Literal["available", "depleted", "unavailable"]
 MetricStatus = Literal["complete", "partial", "unavailable", "not_applicable"]
 OutcomeKey = Literal[
-    "money_back_exact",
+    "any_win",
+    "profit_full",
     "profit_ex_top",
-    "moderate_5x",
-    "moderate_10x",
+    "moderate_10x_full",
+    "moderate_10x_ex_top",
     "jackpot_top_odds",
 ]
 
@@ -71,6 +72,7 @@ class GameDetailResponse(_ApiModel):
     launch_date: date | None
     weeks_in_market: int | None
     published_overall_odds_one_in: float | None
+    estimated_current_overall_odds_one_in: float | None
     estimated_original_tickets: float | None
     estimated_sold_tickets: float | None
     estimated_remaining_tickets: float | None
@@ -122,12 +124,11 @@ GAME_QUERY = text(
       strategy.top_prize_amount,
       strategy.top_prizes_original_reported AS top_prizes_original,
       strategy.top_prizes_remaining_reported AS top_prizes_remaining,
-      strategy.p_break_even_exact,
-      strategy.one_in_break_even_exact,
+      strategy.p_any_win,
+      strategy.one_in_any_win,
+      strategy.p_strict_profit,
       strategy.p_strict_profit_ex_top,
       strategy.one_in_strict_profit_ex_top,
-      strategy.p_5x_or_better_ex_top,
-      strategy.one_in_5x_or_better_ex_top,
       strategy.p_10x_or_better_ex_top,
       strategy.one_in_10x_or_better_ex_top,
       strategy.p_top_prize_estimated,
@@ -246,6 +247,9 @@ def read_current_game_detail_from_connection(
             published_overall_odds_one_in=_optional_float(
                 game["published_overall_odds_one_in"]
             ),
+            estimated_current_overall_odds_one_in=_optional_float(
+                game["one_in_any_win"]
+            ),
             estimated_original_tickets=_optional_float(
                 game["estimated_original_tickets"]
             ),
@@ -296,31 +300,75 @@ def _tier_response(row: RowMapping) -> GamePrizeTierResponse:
     )
 
 
-_OUTCOME_FIELDS: tuple[tuple[OutcomeKey, str, str], ...] = (
-    ("money_back_exact", "p_break_even_exact", "one_in_break_even_exact"),
-    ("profit_ex_top", "p_strict_profit_ex_top", "one_in_strict_profit_ex_top"),
-    ("moderate_5x", "p_5x_or_better_ex_top", "one_in_5x_or_better_ex_top"),
-    ("moderate_10x", "p_10x_or_better_ex_top", "one_in_10x_or_better_ex_top"),
-    ("jackpot_top_odds", "p_top_prize_estimated", "one_in_top_prize_estimated"),
-)
-
-
 def _outcome_responses(row: RowMapping) -> list[GameOutcomeResponse]:
     statuses = row["metric_statuses"]
     if not isinstance(statuses, dict):
         raise GameDetailReadError("Game outcome statuses are invalid")
-    outcomes: list[GameOutcomeResponse] = []
-    for outcome_key, probability_field, one_in_field in _OUTCOME_FIELDS:
-        metric_status = statuses.get(outcome_key)
-        outcomes.append(
-            GameOutcomeResponse(
-                outcome_key=outcome_key,
-                probability=_optional_float(row[probability_field]),
-                one_in=_optional_float(row[one_in_field]),
-                metric_status=metric_status,
-            )
+    top_probability = row["p_top_prize_estimated"]
+    ten_x_ex_top = row["p_10x_or_better_ex_top"]
+    top_amount = row["top_prize_amount"]
+    top_qualifies_for_ten_x = (
+        top_amount is not None and top_amount >= row["ticket_price"] * 10
+    )
+    ten_x_full = (ten_x_ex_top or 0) + (
+        (top_probability or 0) if top_qualifies_for_ten_x else 0
+    )
+    outcome_values: tuple[
+        tuple[OutcomeKey, object, object, MetricStatus], ...
+    ] = (
+        (
+            "any_win",
+            row["p_any_win"],
+            row["one_in_any_win"],
+            statuses.get("value_full"),
+        ),
+        (
+            "profit_full",
+            row["p_strict_profit"],
+            _one_in(row["p_strict_profit"]),
+            statuses.get("value_full"),
+        ),
+        (
+            "profit_ex_top",
+            row["p_strict_profit_ex_top"],
+            row["one_in_strict_profit_ex_top"],
+            statuses.get("profit_ex_top"),
+        ),
+        (
+            "moderate_10x_full",
+            ten_x_full,
+            _one_in(ten_x_full),
+            statuses.get("value_full"),
+        ),
+        (
+            "moderate_10x_ex_top",
+            ten_x_ex_top,
+            row["one_in_10x_or_better_ex_top"],
+            statuses.get("moderate_10x"),
+        ),
+        (
+            "jackpot_top_odds",
+            top_probability,
+            row["one_in_top_prize_estimated"],
+            statuses.get("jackpot_top_odds"),
+        ),
+    )
+    return [
+        GameOutcomeResponse(
+            outcome_key=key,
+            probability=_optional_float(probability),
+            one_in=_optional_float(one_in),
+            metric_status=status,
         )
-    return outcomes
+        for key, probability, one_in, status in outcome_values
+    ]
+
+
+def _one_in(probability: object) -> float | None:
+    value = _optional_float(probability)
+    if value is None or value <= 0:
+        return None
+    return 1 / value
 
 
 def _optional_float(value: object) -> float | None:

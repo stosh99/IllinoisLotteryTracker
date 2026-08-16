@@ -13,6 +13,14 @@ const anonymous = {
   csrfToken: null,
 };
 
+const disabled = {
+  authenticationAvailable: false,
+  authenticated: false,
+  user: null,
+  session: null,
+  csrfToken: null,
+};
+
 const authenticated = {
   authenticationAvailable: true,
   authenticated: true,
@@ -40,10 +48,18 @@ function sessionFetch(document: object) {
 }
 
 describe("account controls", () => {
+  it("keeps a visible login control when auth is not configured", async () => {
+    const user = userEvent.setup();
+    sessionFetch(disabled);
+    render(<App datasetOverride={rankingDatasetFixture} />);
+    await user.click(await screen.findByRole("button", { name: "Log in" }));
+    expect(screen.getByText("Account sign-in is not enabled yet.")).toBeVisible();
+  });
+
   it("shows an ordinary top-level sign-in link only when auth is anonymous", async () => {
     sessionFetch(anonymous);
     render(<App datasetOverride={rankingDatasetFixture} />);
-    const link = await screen.findByRole("link", { name: "Sign in with Google" });
+    const link = await screen.findByRole("link", { name: "Log in" });
     expect(link).toHaveAttribute("href", "/api/v1/auth/google/start?returnTo=%2F");
   });
 
@@ -54,9 +70,13 @@ describe("account controls", () => {
     const summary = await screen.findByText("Account", { selector: "summary" });
     await user.click(summary);
     expect(screen.getByText("p@example.test")).toBeVisible();
-    expect(screen.getByRole("link", { name: "Manage sessions" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "My ticket history" })).toHaveAttribute(
       "href",
-      "/account",
+      "/account#ticket-history",
+    );
+    expect(screen.getByRole("link", { name: "Account settings" })).toHaveAttribute(
+      "href",
+      "/account#account-security",
     );
   });
 

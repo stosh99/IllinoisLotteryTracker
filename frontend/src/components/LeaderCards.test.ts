@@ -39,7 +39,7 @@ describe("leader-card carousel labels", () => {
 
   it("uses one-in and percentage forms for probability strategies", () => {
     const record = rankingDatasetFixture.rankings.find(
-      (candidate) => candidate.strategyKey === "money_back_exact",
+      (candidate) => candidate.strategyKey === "any_win",
     )!;
 
     expect(primaryMetric(record)).toMatch(/^1 in /);

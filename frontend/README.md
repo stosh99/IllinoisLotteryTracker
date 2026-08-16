@@ -43,8 +43,8 @@ npm run test:e2e
 - Responsive site shell, comparison page, game-detail pages, and protected account route
 - Click-through current prize-tier tables backed by the published analytics cutoff
 - Dated estimated-ticket-sales and selectable prize-tier claim-progress charts
-- Five primary player questions backed by the canonical strategy keys
-- Ticket-price filtering
+- Six player questions backed by the published analytics metrics
+- Ticket-price filtering and ticket search
 - URL-backed comparison state
 - Explicit loading, error, empty, stale, and unavailable states
 - Desktop table and mobile ranked-card layouts

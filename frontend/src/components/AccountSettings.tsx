@@ -62,8 +62,8 @@ export function AccountSettings({
       <p className="eyebrow">DELETE ACCOUNT</p>
       <h2 id="delete-account-title">Permanently remove this account</h2>
       <p>
-        This removes your local account and active sessions. Type <strong>{CONFIRMATION}</strong>{" "}
-        to continue.
+        This permanently removes your local account, saved ticket history, and active sessions.
+        Type <strong>{CONFIRMATION}</strong> to continue.
       </p>
       {needsReauthentication ? (
         <div className="reauth-prompt">

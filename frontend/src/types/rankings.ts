@@ -1,13 +1,10 @@
 export const STRATEGY_KEYS = [
-  "money_back_exact",
-  "profit_ex_top",
+  "any_win",
+  "profit_full",
   "value_full",
   "value_ex_top",
-  "moderate_5x",
-  "moderate_10x",
+  "moderate_10x_full",
   "jackpot_top_odds",
-  "large_1000",
-  "large_100000",
 ] as const;
 
 export type StrategyKey = (typeof STRATEGY_KEYS)[number];
@@ -70,6 +67,10 @@ export interface RankingRecord {
   topPrizesOriginal: number | null;
   topPrizesRemaining: number | null;
   weeksInMarket: number | null;
+  profitExTopProbability: number | null;
+  oneInProfitExTop: number | null;
+  tenXExTopProbability: number | null;
+  oneInTenXExTop: number | null;
 }
 
 export interface RankingDataset {

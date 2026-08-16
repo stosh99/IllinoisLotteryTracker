@@ -13,6 +13,7 @@ export const gameDetailFixture: GameDetail = {
   launchDate: "2026-03-05",
   weeksInMarket: 22,
   publishedOverallOddsOneIn: 3.92,
+  estimatedCurrentOverallOddsOneIn: 3.85,
   estimatedOriginalTickets: 5_000_000,
   estimatedSoldTickets: 2_750_000.5,
   estimatedRemainingTickets: 2_249_999.5,
@@ -23,9 +24,15 @@ export const gameDetailFixture: GameDetail = {
   topPrizesRemaining: 2,
   outcomes: [
     {
-      outcomeKey: "money_back_exact",
-      probability: 0.111,
-      oneIn: 9.009,
+      outcomeKey: "any_win",
+      probability: 0.25974,
+      oneIn: 3.85,
+      metricStatus: "complete",
+    },
+    {
+      outcomeKey: "profit_full",
+      probability: 0.085470889,
+      oneIn: 11.7,
       metricStatus: "complete",
     },
     {
@@ -35,13 +42,13 @@ export const gameDetailFixture: GameDetail = {
       metricStatus: "complete",
     },
     {
-      outcomeKey: "moderate_5x",
-      probability: 0.041496,
-      oneIn: 24.1,
+      outcomeKey: "moderate_10x_full",
+      probability: 0.022800889,
+      oneIn: 43.858,
       metricStatus: "complete",
     },
     {
-      outcomeKey: "moderate_10x",
+      outcomeKey: "moderate_10x_ex_top",
       probability: 0.0228,
       oneIn: 43.86,
       metricStatus: "complete",

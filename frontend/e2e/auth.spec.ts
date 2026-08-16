@@ -40,15 +40,36 @@ async function mockRankings(page: Page) {
   );
 }
 
+async function mockEmptyTicketHistory(page: Page) {
+  await page.route("**/api/v1/ticket-entries", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        summary: {
+          entryCount: 0,
+          ticketCount: 0,
+          amountSpent: 0,
+          amountWon: 0,
+          netResult: 0,
+          returnPercentage: null,
+        },
+        entries: [],
+      }),
+    }),
+  );
+}
+
 test("rankings remain usable when authentication is disabled", async ({ page }) => {
   await mockRankings(page);
   await page.route("**/api/v1/auth/session", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(disabledSession) }),
   );
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Comparison ready" })).toBeVisible();
+  await expect(page.getByText(/Data valid as of/i)).toBeVisible();
   await expect(page.getByRole("table")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Sign in with Google" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Log in" }).click();
+  await expect(page.getByText("Account sign-in is not enabled yet.")).toBeVisible();
   expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
 });
 
@@ -58,7 +79,7 @@ test("anonymous state presents a same-origin Google start navigation", async ({ 
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(anonymousSession) }),
   );
   await page.goto("/");
-  await expect(page.getByRole("link", { name: "Sign in with Google" })).toHaveAttribute(
+  await expect(page.getByRole("link", { name: "Log in" })).toHaveAttribute(
     "href",
     "/api/v1/auth/google/start?returnTo=%2F",
   );
@@ -69,6 +90,8 @@ test("authenticated account route works on direct load without client storage", 
   page.on("console", (message) => {
     if (message.type() === "error") errors.push(message.text());
   });
+  await mockRankings(page);
+  await mockEmptyTicketHistory(page);
   await page.route("**/api/v1/auth/session", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(authenticatedSession) }),
   );
@@ -98,6 +121,8 @@ test("authenticated account route works on direct load without client storage", 
 });
 
 test("stale deletion discards confirmation before one-time Google navigation", async ({ page }) => {
+  await mockRankings(page);
+  await mockEmptyTicketHistory(page);
   await page.route("**/api/v1/auth/session", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(authenticatedSession) }),
   );
@@ -255,6 +280,20 @@ test("fake-provider journey logs in, rejects replay, rotates, and deletes", asyn
       });
       return;
     }
+    if (url.pathname === "/api/v1/ticket-entries") {
+      await json(200, {
+        summary: {
+          entryCount: 0,
+          ticketCount: 0,
+          amountSpent: 0,
+          amountWon: 0,
+          netResult: 0,
+          returnPercentage: null,
+        },
+        entries: [],
+      });
+      return;
+    }
     if (url.pathname === "/api/v1/auth/google/reauth-delete") {
       expect(request.method()).toBe("POST");
       expect(request.headers()["x-csrf-token"]).toBe(`csrf-${sessionVersion}`);
@@ -300,7 +339,7 @@ test("fake-provider journey logs in, rejects replay, rotates, and deletes", asyn
 
   await page.goto("/");
   await expect(page.getByRole("table")).toBeVisible();
-  await page.getByRole("link", { name: "Sign in with Google" }).click();
+  await page.getByRole("link", { name: "Log in" }).click();
   await page.goto(providerTarget);
   await page.goto(callbackTarget);
   await page.goto(callbackLocation);
@@ -313,16 +352,16 @@ test("fake-provider journey logs in, rejects replay, rotates, and deletes", asyn
   await expect(page.getByText("player@example.test")).toBeVisible();
 
   await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page.getByRole("link", { name: "Sign in with Google" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Log in" })).toBeVisible();
   await page.goto(
     `http://127.0.0.1:4173/api/v1/auth/google/callback?code=replayed&state=${currentAttempt}`,
   );
   await page.goto(callbackLocation);
-  await expect(page.getByRole("link", { name: "Sign in with Google" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Log in" })).toBeVisible();
   await expect(page).not.toHaveURL(/authResult=/);
   expect(authenticated).toBe(false);
 
-  await page.getByRole("link", { name: "Sign in with Google" }).click();
+  await page.getByRole("link", { name: "Log in" }).click();
   await page.goto(providerTarget);
   await page.goto(callbackTarget);
   await page.goto(callbackLocation);
@@ -337,7 +376,7 @@ test("fake-provider journey logs in, rejects replay, rotates, and deletes", asyn
   expect(sessionVersion).toBe(3);
   await page.getByLabel("Confirmation phrase").fill("DELETE MY ACCOUNT");
   await page.getByRole("button", { name: "Delete my account" }).click();
-  await expect(page.getByRole("link", { name: "Sign in with Google" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Log in" })).toBeVisible();
   expect(authenticated).toBe(false);
   expect(deletionAttempts).toBe(2);
   expect(await page.evaluate(() => document.cookie)).toBe("");

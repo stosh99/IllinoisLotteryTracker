@@ -123,26 +123,29 @@ const games: FixtureGame[] = [
 function metricSet(
   valueFull: number,
   valueExTop: number,
-  moneyBack: number,
+  anyWin: number,
   moderate10x: number,
   topOneIn: number,
   topConfidence: ConfidenceLabel,
 ): Record<StrategyKey, FixtureMetric> {
   const topProbability = 1 / topOneIn;
+  const profitExTop = anyWin * 0.77;
+  const profitFull = profitExTop + topProbability;
+  const moderate10xFull = moderate10x + topProbability;
   return {
-    money_back_exact: {
-      value: moneyBack,
-      launch: moneyBack * 0.96,
-      oneIn: 1 / moneyBack,
+    any_win: {
+      value: anyWin,
+      launch: anyWin * 0.96,
+      oneIn: 1 / anyWin,
       confidence: "high",
-      targetTierCount: 1,
+      targetTierCount: 9,
     },
-    profit_ex_top: {
-      value: moneyBack * 0.77,
-      launch: moneyBack * 0.75,
-      oneIn: 1 / (moneyBack * 0.77),
+    profit_full: {
+      value: profitFull,
+      launch: profitFull * 0.97,
+      oneIn: 1 / profitFull,
       confidence: "high",
-      targetTierCount: 8,
+      targetTierCount: 9,
     },
     value_full: {
       value: valueFull,
@@ -157,19 +160,12 @@ function metricSet(
       confidence: "moderate",
       targetTierCount: 11,
     },
-    moderate_5x: {
-      value: moderate10x * 1.82,
-      launch: moderate10x * 1.75,
-      oneIn: 1 / (moderate10x * 1.82),
-      confidence: "high",
-      targetTierCount: 7,
-    },
-    moderate_10x: {
-      value: moderate10x,
-      launch: moderate10x * 0.95,
-      oneIn: 1 / moderate10x,
+    moderate_10x_full: {
+      value: moderate10xFull,
+      launch: moderate10xFull * 0.95,
+      oneIn: 1 / moderate10xFull,
       confidence: "moderate",
-      targetTierCount: 5,
+      targetTierCount: 6,
     },
     jackpot_top_odds: {
       value: topProbability,
@@ -178,21 +174,6 @@ function metricSet(
       confidence: topConfidence,
       containsLumpy: true,
       targetTierCount: 1,
-    },
-    large_1000: {
-      value: moderate10x * 0.31,
-      launch: moderate10x * 0.3,
-      oneIn: 1 / (moderate10x * 0.31),
-      confidence: "moderate",
-      targetTierCount: 4,
-    },
-    large_100000: {
-      value: topProbability * 2.4,
-      launch: topProbability * 2.2,
-      oneIn: 1 / (topProbability * 2.4),
-      confidence: topConfidence,
-      containsLumpy: true,
-      targetTierCount: 2,
     },
   };
 }
@@ -245,6 +226,14 @@ function buildRecords(): RankingRecord[] {
         topPrizesOriginal: game.topOriginal,
         topPrizesRemaining: game.topRemaining,
         weeksInMarket: game.weeks,
+        profitExTopProbability: game.metrics.any_win.value * 0.77,
+        oneInProfitExTop: 1 / (game.metrics.any_win.value * 0.77),
+        tenXExTopProbability:
+          game.metrics.moderate_10x_full.value - 1 / game.metrics.jackpot_top_odds.oneIn!,
+        oneInTenXExTop:
+          1 /
+          (game.metrics.moderate_10x_full.value -
+            1 / game.metrics.jackpot_top_odds.oneIn!),
       });
     });
   }

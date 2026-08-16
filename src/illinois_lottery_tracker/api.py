@@ -36,6 +36,7 @@ from .rankings_api import (
     RankingReadError,
     read_current_rankings,
 )
+from .ticket_entries_api import router as ticket_entries_router
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,7 @@ app = FastAPI(
 # ``app.routes`` in newer FastAPI releases and break existing route inspection.
 app.router.routes.extend(auth_router.routes)
 app.router.routes.extend(account_router.routes)
+app.router.routes.extend(ticket_entries_router.routes)
 
 
 @app.middleware("http")
@@ -127,7 +129,9 @@ async def request_id_header(request, call_next):
     else:
         response = await call_next(request)
     response.headers["X-Request-ID"] = str(request.state.request_id)
-    if request.url.path.startswith(("/api/v1/auth", "/api/v1/account")):
+    if request.url.path.startswith(
+        ("/api/v1/auth", "/api/v1/account", "/api/v1/ticket-entries")
+    ):
         response.headers.setdefault("Cache-Control", "no-store")
         response.headers.setdefault("Referrer-Policy", "no-referrer")
     if os.environ.get("APP_ENV") == "production":

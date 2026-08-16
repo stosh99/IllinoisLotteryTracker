@@ -1,10 +1,11 @@
 import type { ConfidenceLabel } from "./rankings";
 
 export const OUTCOME_KEYS = [
-  "money_back_exact",
+  "any_win",
+  "profit_full",
   "profit_ex_top",
-  "moderate_5x",
-  "moderate_10x",
+  "moderate_10x_full",
+  "moderate_10x_ex_top",
   "jackpot_top_odds",
 ] as const;
 
@@ -58,6 +59,7 @@ export interface GameDetail {
   launchDate: string | null;
   weeksInMarket: number | null;
   publishedOverallOddsOneIn: number | null;
+  estimatedCurrentOverallOddsOneIn: number | null;
   estimatedOriginalTickets: number | null;
   estimatedSoldTickets: number | null;
   estimatedRemainingTickets: number | null;

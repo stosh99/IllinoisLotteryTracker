@@ -4,44 +4,44 @@ import { gameDetailFixture } from "../test/gameDetailFixture";
 import { buildOutcomeRows, formatOutcomeProbability } from "./outcomeLadder";
 
 describe("outcome ladder", () => {
-  it("keeps break-even, nested ordinary outcomes, and jackpot in their defined order", () => {
+  it("keeps the three player outcomes, their no-jackpot context, and jackpot in order", () => {
     const rows = buildOutcomeRows([...gameDetailFixture.outcomes].reverse());
 
     expect(rows.map(({ key }) => key)).toEqual([
-      "money_back_exact",
+      "any_win",
+      "profit_full",
       "profit_ex_top",
-      "moderate_5x",
-      "moderate_10x",
+      "moderate_10x_full",
+      "moderate_10x_ex_top",
       "jackpot_top_odds",
     ]);
     expect(rows.map(({ lane }) => lane)).toEqual([
-      "break-even",
-      "ordinary",
-      "ordinary",
-      "ordinary",
+      "primary",
+      "primary",
+      "supporting",
+      "primary",
+      "supporting",
       "jackpot",
     ]);
-    expect(rows.filter(({ lane }) => lane === "ordinary").map(({ depth }) => depth))
-      .toEqual([0, 1, 2]);
   });
 
-  it("normalizes only the nested ordinary-outcome bars", () => {
+  it("normalizes only the three primary outcome bars", () => {
     const rows = buildOutcomeRows(gameDetailFixture.outcomes);
 
-    expect(rows.find(({ key }) => key === "profit_ex_top")?.relativeWidth).toBe(100);
-    expect(rows.find(({ key }) => key === "moderate_5x")?.relativeWidth).toBeCloseTo(48.55, 1);
-    expect(rows.find(({ key }) => key === "moderate_10x")?.relativeWidth).toBeCloseTo(26.68, 1);
-    expect(rows.find(({ key }) => key === "money_back_exact")?.relativeWidth).toBe(0);
+    expect(rows.find(({ key }) => key === "any_win")?.relativeWidth).toBe(100);
+    expect(rows.find(({ key }) => key === "profit_full")?.relativeWidth).toBeCloseTo(32.91, 1);
+    expect(rows.find(({ key }) => key === "moderate_10x_full")?.relativeWidth).toBeCloseTo(8.78, 1);
+    expect(rows.find(({ key }) => key === "profit_ex_top")?.relativeWidth).toBe(0);
     expect(rows.find(({ key }) => key === "jackpot_top_odds")?.relativeWidth).toBe(0);
   });
 
   it("does not portray partial or missing metrics as zero", () => {
     const metrics = gameDetailFixture.outcomes.map((metric) =>
-      metric.outcomeKey === "moderate_5x"
+      metric.outcomeKey === "moderate_10x_full"
         ? { ...metric, metricStatus: "partial" as const }
         : metric,
     );
-    const partial = buildOutcomeRows(metrics).find(({ key }) => key === "moderate_5x")!;
+    const partial = buildOutcomeRows(metrics).find(({ key }) => key === "moderate_10x_full")!;
 
     expect(partial.available).toBe(false);
     expect(partial.probability).toBeNull();
@@ -50,7 +50,7 @@ describe("outcome ladder", () => {
   });
 
   it("keeps useful percentage precision from common outcomes through jackpot odds", () => {
-    expect(formatOutcomeProbability(0.111)).toBe("11.1%");
+    expect(formatOutcomeProbability(0.25974)).toBe("26%");
     expect(formatOutcomeProbability(0.0228)).toBe("2.28%");
     expect(formatOutcomeProbability(0.000000888889)).toBe("0.00009%");
   });

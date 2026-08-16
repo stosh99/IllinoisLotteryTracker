@@ -175,6 +175,8 @@ def route_policy(path: str, method: str) -> str | None:
         "DELETE",
     }:
         return "destructive"
-    if not path.startswith(("/api/v1/auth", "/api/v1/account")):
+    if not path.startswith(
+        ("/api/v1/auth", "/api/v1/account", "/api/v1/ticket-entries")
+    ):
         return None
     return "read" if method in {"GET", "HEAD"} else "write"

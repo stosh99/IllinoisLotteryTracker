@@ -10,23 +10,29 @@ describe("initial ranking experience", () => {
   it("labels published data and renders an accessible comparison", () => {
     render(<App datasetOverride={rankingDatasetFixture} />);
 
-    expect(
-      screen.getByRole("heading", { name: "Comparison ready" }),
-    ).toBeVisible();
-    expect(screen.getByText("DATA STATUS")).toBeVisible();
+    expect(screen.getByText(/Data valid as of/i)).toHaveTextContent(
+      "Data valid as of 08/08/2026 · 2:04 AM CDT",
+    );
     expect(screen.getByRole("table")).toHaveAccessibleName(/ranked instant-ticket/i);
     expect(screen.getAllByText("Prairie Gold").length).toBeGreaterThan(0);
-    expect(screen.getByText("Official prize counts")).toBeVisible();
-    expect(screen.getByText("Games-for-sale list")).toBeVisible();
-    expect(screen.getByText("Page updated")).toBeVisible();
+    expect(screen.queryByText("DATA STATUS")).not.toBeInTheDocument();
     expect(screen.queryByText("test-1.0.0")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("radiogroup", { name: "Choose your player type" })).toHaveLength(1);
+    expect(screen.queryByText("Explore the comparison")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /I can’t decide\. Show me every ticket/i }),
+    ).toHaveAttribute("href", "/tickets");
+    expect(
+      within(screen.getByRole("radiogroup", { name: "Change player type" }))
+        .getAllByRole("radio"),
+    ).toHaveLength(6);
 
     const cardCarousel = screen.getByRole("region", { name: "Ranked game cards" });
     expect(within(cardCarousel).getAllByRole("article")).toHaveLength(8);
     expect(within(cardCarousel).getByText("Lakefront 10X")).toBeVisible();
     expect(within(cardCarousel).getByText("Lincoln Lucky Lines")).toBeVisible();
     expect(
-      within(cardCarousel).getByText(/\$35\.80 per \$50 ticket over the long run/i),
+      within(cardCarousel).getByText(/\$37\.95 per \$50 ticket over the long run/i),
     ).toBeVisible();
     expect(within(cardCarousel).getByText("About 71.6¢ in prizes per $1 over the long run")).toBeVisible();
     expect(within(cardCarousel).getAllByText("Why rank #1").length).toBeGreaterThan(0);
@@ -63,7 +69,10 @@ describe("initial ranking experience", () => {
     const user = userEvent.setup();
     render(<App datasetOverride={rankingDatasetFixture} />);
 
-    await user.click(screen.getByRole("radio", { name: /overall value/i }));
+    await user.click(
+      within(screen.getByRole("radiogroup", { name: "Choose your player type" }))
+        .getByRole("radio", { name: /overall value/i }),
+    );
     await user.click(screen.getByRole("button", { name: "$10" }));
 
     expect(window.location.search).toBe("?strategy=value_full&price=10");
@@ -71,17 +80,54 @@ describe("initial ranking experience", () => {
     expect(screen.queryByText("Prairie Gold")).not.toBeInTheDocument();
   });
 
-  it("offers a transparent non-jackpot profit comparison", async () => {
+  it("keeps ticket search in the global finder instead of repeating it in the ranking filters", () => {
+    render(<App datasetOverride={rankingDatasetFixture} />);
+
+    expect(screen.queryByRole("searchbox", { name: "Search tickets" })).not.toBeInTheDocument();
+    expect(screen.getByRole("search", { name: "Find a ticket" })).toBeVisible();
+  });
+
+  it("opens a game from the live header finder by name or number", async () => {
     const user = userEvent.setup();
     render(<App datasetOverride={rankingDatasetFixture} />);
 
-    await user.click(screen.getByRole("radio", { name: /Come out ahead/i }));
+    const finder = screen.getByRole("search", { name: "Find a ticket" });
+    await user.selectOptions(within(finder).getByLabelText("Ticket denomination"), "10");
+    await user.type(within(finder).getByRole("combobox", { name: "Game name or number" }), "DEMO-102");
+    await user.click(within(finder).getByRole("option", { name: "$10 · DEMO-102 — Lakefront 10X" }));
+    await user.click(within(finder).getByRole("button", { name: "Go" }));
 
-    expect(window.location.search).toBe("?strategy=profit_ex_top");
+    expect(window.location.pathname).toBe("/games/102");
+  });
+
+  it("keeps the important caveats in a compact header popover", async () => {
+    const user = userEvent.setup();
+    render(<App datasetOverride={rankingDatasetFixture} />);
+
+    const trigger = screen.getByRole("button", { name: "Read this first" });
+    expect(screen.queryByRole("dialog", { name: "Important information" })).not.toBeInTheDocument();
+    await user.click(trigger);
+    const popover = screen.getByRole("dialog", { name: "Important information" });
+    expect(popover).toHaveTextContent("game-wide prize pool");
+    expect(popover).toHaveTextContent("not affiliated with the Illinois Lottery");
+  });
+
+  it("offers a jackpot-inclusive profit comparison without duplicate odds", async () => {
+    const user = userEvent.setup();
+    render(<App datasetOverride={rankingDatasetFixture} />);
+
+    await user.click(
+      within(screen.getByRole("radiogroup", { name: "Choose your player type" }))
+        .getByRole("radio", { name: /best chance of profit/i }),
+    );
+
+    expect(window.location.search).toBe("?strategy=profit_full");
     expect(
-      screen.getByRole("heading", { name: "Where is a non-jackpot profit most likely?" }),
+      screen.getByRole("heading", {
+        name: "Which tickets give me the best chance of winning more than they cost?",
+      }),
     ).toBeVisible();
-    expect(screen.getAllByText(/excluding (the )?top prize/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/chance of profit without the jackpot/i)).not.toBeInTheDocument();
     expect(screen.getAllByText(/winning more than the ticket price/i).length).toBeGreaterThan(0);
   });
 
@@ -133,11 +179,12 @@ describe("initial ranking experience", () => {
     const user = userEvent.setup();
     render(<App datasetOverride={rankingDatasetFixture} />);
 
-    const practical = screen.getByRole("radio", { name: /practical value/i });
+    const chooser = screen.getByRole("radiogroup", { name: "Choose your player type" });
+    const practical = within(chooser).getByRole("radio", { name: /practical value/i });
     practical.focus();
     await user.keyboard("{ArrowRight}");
 
-    const overall = screen.getByRole("radio", { name: /overall value/i });
+    const overall = within(chooser).getByRole("radio", { name: /overall value/i });
     expect(overall).toHaveFocus();
     expect(overall).toHaveAttribute("aria-checked", "true");
     expect(practical).toHaveAttribute("tabindex", "-1");

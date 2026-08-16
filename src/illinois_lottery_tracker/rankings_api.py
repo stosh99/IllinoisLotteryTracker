@@ -19,15 +19,12 @@ RankingReasonCode = Literal[
     "ANALYTICS_UNAVAILABLE",
 ]
 StrategyKey = Literal[
-    "money_back_exact",
-    "profit_ex_top",
+    "any_win",
+    "profit_full",
     "value_full",
     "value_ex_top",
-    "moderate_5x",
-    "moderate_10x",
+    "moderate_10x_full",
     "jackpot_top_odds",
-    "large_1000",
-    "large_100000",
 ]
 ConfidenceLabel = Literal["lumpy", "low", "moderate", "high"]
 
@@ -84,6 +81,10 @@ class RankingRecordResponse(_ApiModel):
     top_prizes_original: int | None
     top_prizes_remaining: int | None
     weeks_in_market: int | None
+    profit_ex_top_probability: float | None
+    one_in_profit_ex_top: float | None
+    ten_x_ex_top_probability: float | None
+    one_in_ten_x_ex_top: float | None
 
 
 class RankingDatasetResponse(_ApiModel):
@@ -114,43 +115,218 @@ STATUS_QUERY = text(
 
 RANKINGS_QUERY = text(
     """
-    SELECT
-      ranking.analytics_run_id,
-      ranking.game_id,
-      ranking.game_number,
-      game.name AS game_name,
-      ranking.ticket_price,
-      ranking.strategy_key,
-      ranking.metric_value,
-      ranking.one_in_value,
-      ranking.launch_metric_value,
-      ranking.relative_to_launch,
-      ranking.target_tier_count,
-      ranking.target_count_coverage,
-      ranking.target_value_coverage,
-      ranking.metric_status,
-      ranking.lowest_confidence,
-      ranking.contains_lumpy_tier,
-      ranking.source_observed_at,
-      ranking.catalog_observed_at,
-      ranking.model_version,
-      ranking.rank_overall,
-      ranking.rank_within_ticket_price,
-      metrics.estimated_ev_full,
-      metrics.estimated_ev_ex_top,
-      metrics.top_prize_amount,
-      metrics.top_prizes_original_reported AS top_prizes_original,
-      metrics.top_prizes_remaining_reported AS top_prizes_remaining,
-      snapshot.weeks_in_market
-    FROM current_strategy_rankings_v ranking
-    JOIN games game
-      ON game.id = ranking.game_id
-    JOIN current_strategy_metrics_v metrics
-      ON metrics.analytics_run_id = ranking.analytics_run_id
-     AND metrics.game_id = ranking.game_id
-    JOIN current_game_snapshots_v snapshot
-      ON snapshot.game_id = ranking.game_id
-    ORDER BY ranking.strategy_key, ranking.rank_overall, ranking.game_number
+    WITH expanded AS (
+      SELECT
+        metrics.analytics_run_id,
+        metrics.game_id,
+        game.game_number,
+        game.name AS game_name,
+        metrics.ticket_price,
+        strategy.strategy_key,
+        strategy.metric_value,
+        strategy.one_in_value,
+        strategy.launch_metric_value,
+        CASE
+          WHEN strategy.launch_metric_value IS NOT NULL
+            AND strategy.launch_metric_value <> 0
+          THEN strategy.metric_value / strategy.launch_metric_value
+        END AS relative_to_launch,
+        strategy.target_tier_count,
+        strategy.target_count_coverage,
+        strategy.target_value_coverage,
+        'complete'::text AS metric_status,
+        CASE strategy.strategy_key
+          WHEN 'value_ex_top' THEN COALESCE(
+            metrics.metric_details -> 'value_ex_top' ->> 'lowest_confidence',
+            metrics.lowest_confidence
+          )
+          WHEN 'value_full' THEN COALESCE(
+            metrics.metric_details -> 'value_full' ->> 'lowest_confidence',
+            metrics.lowest_confidence
+          )
+          WHEN 'any_win' THEN COALESCE(
+            metrics.metric_details -> 'value_full' ->> 'lowest_confidence',
+            metrics.lowest_confidence
+          )
+          WHEN 'jackpot_top_odds' THEN COALESCE(
+            metrics.metric_details -> 'jackpot_top_odds' ->> 'lowest_confidence',
+            metrics.lowest_confidence
+          )
+          ELSE metrics.lowest_confidence
+        END AS lowest_confidence,
+        CASE strategy.strategy_key
+          WHEN 'value_ex_top' THEN COALESCE(
+            (metrics.metric_details -> 'value_ex_top'
+              ->> 'contains_lumpy_tier')::boolean,
+            metrics.contains_lumpy_tier
+          )
+          WHEN 'value_full' THEN COALESCE(
+            (metrics.metric_details -> 'value_full'
+              ->> 'contains_lumpy_tier')::boolean,
+            metrics.contains_lumpy_tier
+          )
+          WHEN 'any_win' THEN COALESCE(
+            (metrics.metric_details -> 'value_full'
+              ->> 'contains_lumpy_tier')::boolean,
+            metrics.contains_lumpy_tier
+          )
+          WHEN 'jackpot_top_odds' THEN COALESCE(
+            (metrics.metric_details -> 'jackpot_top_odds'
+              ->> 'contains_lumpy_tier')::boolean,
+            metrics.contains_lumpy_tier
+          )
+          ELSE metrics.contains_lumpy_tier
+        END AS contains_lumpy_tier,
+        current_run.as_of_observed_at AS source_observed_at,
+        catalog.source_observed_at AS catalog_observed_at,
+        model.semantic_version AS model_version,
+        metrics.estimated_ev_full,
+        metrics.estimated_ev_ex_top,
+        metrics.top_prize_amount,
+        metrics.top_prizes_original_reported AS top_prizes_original,
+        metrics.top_prizes_remaining_reported AS top_prizes_remaining,
+        snapshot.weeks_in_market,
+        metrics.p_strict_profit_ex_top AS profit_ex_top_probability,
+        metrics.one_in_strict_profit_ex_top AS one_in_profit_ex_top,
+        metrics.p_10x_or_better_ex_top AS ten_x_ex_top_probability,
+        metrics.one_in_10x_or_better_ex_top AS one_in_ten_x_ex_top
+      FROM current_strategy_metrics_v metrics
+      JOIN current_analytics_run_v current_run
+        ON current_run.id = metrics.analytics_run_id
+      JOIN analytics_model_versions model
+        ON model.id = current_run.model_version_id
+      JOIN current_game_metrics_v game_metrics
+        ON game_metrics.analytics_run_id = metrics.analytics_run_id
+       AND game_metrics.game_id = metrics.game_id
+      JOIN current_game_snapshots_v snapshot
+        ON snapshot.game_id = metrics.game_id
+      JOIN games game
+        ON game.id = metrics.game_id
+      JOIN recommendation_current_games_v recommended
+        ON recommended.id = metrics.game_id
+      JOIN current_complete_catalog_run_v catalog ON true
+      JOIN current_strategy_ranking_status_v ranking_status
+        ON ranking_status.available
+      CROSS JOIN LATERAL (
+        VALUES
+          (
+            'value_ex_top',
+            metrics.estimated_payout_ratio_ex_top,
+            NULL::numeric,
+            (metrics.metric_details -> 'value_ex_top' ->> 'launch_metric_value')::numeric,
+            (metrics.metric_details -> 'value_ex_top' ->> 'target_tier_count')::integer,
+            metrics.ex_top_count_coverage,
+            metrics.ex_top_value_coverage,
+            metrics.metric_statuses ->> 'value_ex_top'
+          ),
+          (
+            'value_full',
+            metrics.estimated_payout_ratio_full,
+            NULL::numeric,
+            (metrics.metric_details -> 'value_full' ->> 'launch_metric_value')::numeric,
+            (metrics.metric_details -> 'value_full' ->> 'target_tier_count')::integer,
+            metrics.full_count_coverage,
+            metrics.full_value_coverage,
+            metrics.metric_statuses ->> 'value_full'
+          ),
+          (
+            'any_win',
+            metrics.p_any_win,
+            metrics.one_in_any_win,
+            CASE WHEN game_metrics.published_overall_odds_one_in > 0
+              THEN 1 / game_metrics.published_overall_odds_one_in END,
+            (metrics.metric_details -> 'value_full' ->> 'target_tier_count')::integer,
+            metrics.full_count_coverage,
+            metrics.full_value_coverage,
+            metrics.metric_statuses ->> 'value_full'
+          ),
+          (
+            'profit_full',
+            metrics.p_strict_profit,
+            CASE WHEN metrics.p_strict_profit > 0
+              THEN 1 / metrics.p_strict_profit END,
+            (metrics.metric_details -> 'profit_ex_top' ->> 'launch_metric_value')::numeric
+              + (metrics.metric_details -> 'jackpot_top_odds' ->> 'launch_metric_value')::numeric,
+            COALESCE(
+              (metrics.metric_details -> 'profit_ex_top' ->> 'target_tier_count')::integer,
+              0
+            ) + 1,
+            metrics.full_count_coverage,
+            metrics.full_value_coverage,
+            metrics.metric_statuses ->> 'value_full'
+          ),
+          (
+            'moderate_10x_full',
+            COALESCE(metrics.p_10x_or_better_ex_top, 0)
+              + CASE WHEN metrics.top_prize_amount >= metrics.ticket_price * 10
+                  THEN COALESCE(metrics.p_top_prize_estimated, 0)
+                  ELSE 0 END,
+            CASE
+              WHEN COALESCE(metrics.p_10x_or_better_ex_top, 0)
+                + CASE WHEN metrics.top_prize_amount >= metrics.ticket_price * 10
+                    THEN COALESCE(metrics.p_top_prize_estimated, 0)
+                    ELSE 0 END > 0
+              THEN 1 / (
+                COALESCE(metrics.p_10x_or_better_ex_top, 0)
+                + CASE WHEN metrics.top_prize_amount >= metrics.ticket_price * 10
+                    THEN COALESCE(metrics.p_top_prize_estimated, 0)
+                    ELSE 0 END
+              )
+            END,
+            COALESCE(
+              (metrics.metric_details -> 'moderate_10x' ->> 'launch_metric_value')::numeric,
+              0
+            ) + CASE WHEN metrics.top_prize_amount >= metrics.ticket_price * 10
+                THEN COALESCE(
+                  (metrics.metric_details -> 'jackpot_top_odds'
+                    ->> 'launch_metric_value')::numeric,
+                  0
+                ) ELSE 0 END,
+            COALESCE(
+              (metrics.metric_details -> 'moderate_10x' ->> 'target_tier_count')::integer,
+              0
+            ) + CASE WHEN metrics.top_prize_amount >= metrics.ticket_price * 10
+                THEN 1 ELSE 0 END,
+            metrics.full_count_coverage,
+            metrics.full_value_coverage,
+            metrics.metric_statuses ->> 'value_full'
+          ),
+          (
+            'jackpot_top_odds',
+            metrics.p_top_prize_estimated,
+            metrics.one_in_top_prize_estimated,
+            (metrics.metric_details -> 'jackpot_top_odds'
+              ->> 'launch_metric_value')::numeric,
+            (metrics.metric_details -> 'jackpot_top_odds'
+              ->> 'target_tier_count')::integer,
+            metrics.full_count_coverage,
+            metrics.full_value_coverage,
+            metrics.metric_statuses ->> 'jackpot_top_odds'
+          )
+      ) AS strategy(
+        strategy_key,
+        metric_value,
+        one_in_value,
+        launch_metric_value,
+        target_tier_count,
+        target_count_coverage,
+        target_value_coverage,
+        metric_status
+      )
+      WHERE strategy.metric_status = 'complete'
+        AND strategy.metric_value IS NOT NULL
+    ), ranked AS (
+      SELECT expanded.*,
+        dense_rank() OVER (
+          PARTITION BY strategy_key ORDER BY metric_value DESC
+        ) AS rank_overall,
+        dense_rank() OVER (
+          PARTITION BY strategy_key, ticket_price ORDER BY metric_value DESC
+        ) AS rank_within_ticket_price
+      FROM expanded
+    )
+    SELECT * FROM ranked
+    ORDER BY strategy_key, rank_overall, game_number
     """
 )
 
@@ -245,6 +421,10 @@ def _ranking_response(row: RowMapping) -> RankingRecordResponse:
         top_prizes_original=row["top_prizes_original"],
         top_prizes_remaining=row["top_prizes_remaining"],
         weeks_in_market=row["weeks_in_market"],
+        profit_ex_top_probability=_optional_float(row["profit_ex_top_probability"]),
+        one_in_profit_ex_top=_optional_float(row["one_in_profit_ex_top"]),
+        ten_x_ex_top_probability=_optional_float(row["ten_x_ex_top_probability"]),
+        one_in_ten_x_ex_top=_optional_float(row["one_in_ten_x_ex_top"]),
     )
 
 

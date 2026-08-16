@@ -63,6 +63,10 @@ def run_migrations_online() -> None:
     )
     with connectable.connect() as connection:
         verify_connection_identity(connection, settings.expected_database_name)
+        # The identity SELECT starts an implicit SQLAlchemy transaction. End that
+        # read-only transaction before Alembic takes ownership of the migration
+        # transaction, otherwise successful DDL is rolled back on connection close.
+        connection.commit()
         context.configure(
             connection=connection,
             target_metadata=target_metadata,

@@ -192,6 +192,22 @@ function parseRankingRecord(document: unknown, path: string): RankingRecord {
       0,
     ),
     weeksInMarket: optionalInteger(document, "weeksInMarket", path, 0),
+    profitExTopProbability: optionalNumber(
+      document,
+      "profitExTopProbability",
+      path,
+      0,
+      true,
+    ),
+    oneInProfitExTop: optionalNumber(document, "oneInProfitExTop", path, 0, false),
+    tenXExTopProbability: optionalNumber(
+      document,
+      "tenXExTopProbability",
+      path,
+      0,
+      true,
+    ),
+    oneInTenXExTop: optionalNumber(document, "oneInTenXExTop", path, 0, false),
   };
 }
 

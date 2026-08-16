@@ -14,16 +14,16 @@ describe("ranking URL state", () => {
     expect(
       parseViewState("?strategy=moderate_10x&price=20"),
     ).toEqual({
-      strategy: "moderate_10x",
+      strategy: "moderate_10x_full",
       ticketPrice: 20,
     });
   });
 
-  it("treats the non-jackpot profit view as shareable primary state", () => {
+  it("maps old non-jackpot profit links into the current profit view", () => {
     const state = parseViewState("?strategy=profit_ex_top&price=5");
-    expect(state).toEqual({ strategy: "profit_ex_top", ticketPrice: 5 });
-    expect(serializeViewState(state)).toBe("strategy=profit_ex_top&price=5");
-    expect(viewStateLabel(state)).toBe("Come out ahead · $5 tickets");
+    expect(state).toEqual({ strategy: "profit_full", ticketPrice: 5 });
+    expect(serializeViewState(state)).toBe("strategy=profit_full&price=5");
+    expect(viewStateLabel(state)).toBe("Best chance of profit · $5 tickets");
   });
 
   it("falls back safely for invalid values", () => {

@@ -15,6 +15,9 @@ export const DEFAULT_VIEW_STATE: RankingViewState = {
 };
 
 function parseStrategy(value: string | null): StrategyKey {
+  if (value === "money_back_exact") return "any_win";
+  if (value === "profit_ex_top") return "profit_full";
+  if (value === "moderate_10x") return "moderate_10x_full";
   if (value && allStrategyKeys.has(value) && primaryKeys.has(value as StrategyKey)) {
     return value as StrategyKey;
   }
