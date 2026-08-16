@@ -78,7 +78,8 @@ to reach production is the release-tree mechanism that is being retired.
 Codex's central discipline, adopted wholesale:
 
 1. **Topology correction** (Track A) — no schema change, no feature deployment.
-2. **Feature + migration `0012` deployment** (Track C) — after the soak.
+2. **Feature + migration `0012` deployment** (Track C) — after one clean
+   post-cutover fanout run (see Track C for the revised timing).
 3. **Authentication enablement** — later still, separately, reversibly.
 
 Bundling any two of these makes a failure impossible to attribute.
@@ -88,8 +89,8 @@ Bundling any two of these makes a failure impossible to attribute.
 | Fact | Value |
 |---|---|
 | Live production code | release tree at `ac6e3b8` |
-| VPS checkout | `e52d9c1` (clean) |
-| `origin/main` | `68680c4` "Build player-focused UI and ticket tracking" |
+| VPS checkout | `65b3eef` (clean; pulled to `68680c4` then committed these docs). The checkout is currently **inert** — the live site runs from the release tree, so this pull changed nothing in production. The dev API would pick up the newer code only on restart; it is slated for removal in A4 |
+| `origin/main` | `65b3eef` (= `68680c4` feature work + this documentation) |
 | Feature commit size | 55 files, +4519/−1045; adds `0012_user_ticket_entries`, `ticket_entries_api.py`; modifies `alembic/env.py` |
 | Feature commit infra footprint | **none** — no `deploy/`, `pyproject.toml`, `alembic.ini`, or `scripts/` changes |
 | Prod DB revision | `0011_defer_auth_event_links` |
@@ -109,6 +110,9 @@ Resolution:
 - The VPS checks out `topology-cutover` for the cutover.
 - Merge `topology-cutover` into `main` whenever convenient (main then has both).
 - At Track C, the VPS switches to `main` and the feature work deploys deliberately.
+
+Note: this runbook lives on `main` (`65b3eef`), so the `topology-cutover` branch
+will not contain it. Read the plan from `main`; execute on the branch.
 
 ---
 
@@ -166,9 +170,17 @@ receives no database credentials.
 
 ## Phase A1 — Remote development proven
 
-Before removing the on-box dev app, prove the replacement works. Most of the hard
-parts already exist — mediahub's tunnel to this VPS's Postgres is working on the
-same machine, and it reaches the whole instance, so no new forward is needed.
+Before removing the on-box dev app, prove the replacement works.
+
+**First, establish how stoshai currently reaches the VPS Postgres.** It
+demonstrably connects — it applied `0012` to the dev database — but the path is
+unverified. mediahub's documented, supervised tunnel setup exists on the
+*Windows* dev PC (`docs/REMOTE_DEV.md`), not necessarily on stoshai. If stoshai
+connects any way other than an SSH tunnel to a localhost-bound Postgres (e.g. a
+direct LAN connection to an exposed port), bring it onto the tunnel model as part
+of this phase — the target architecture's security posture assumes the tunnel is
+the only path in. One tunnel reaches the whole Postgres instance, so mediahub
+and lottery share it.
 
 Per development machine: clone, venv + `pip install -e ".[dev]"`, **`npm ci` and
 Playwright browsers** (lottery has a frontend build mediahub does not), local
@@ -361,9 +373,11 @@ production.
 ## Open items
 
 1. **Confirm Track B is in scope now**, or deferred until lottery is done.
-2. **Who authors Track A's code** — a session on stoshai, per decision 4. Note
-   that `docs/architecture_alignment/*` was written on the VPS *before* that rule
-   takes effect; it should be committed from stoshai or as a final on-box commit.
-3. Whether `docs/architecture_consistency.md` gets a "superseded by
+2. Whether `docs/architecture_consistency.md` gets a "superseded by
    `04_MIGRATION_RUNBOOK.md`" header, matching the project's existing convention
    for retired docs.
+3. **How stoshai connects to the VPS Postgres** — verify in Phase A1 (see that
+   phase); tunnel it if it is not already tunnelled.
+
+Resolved: Track A's code is authored on stoshai per decision 4; these documents
+were committed from the VPS as the deliberate final on-box commit (`65b3eef`).
