@@ -34,7 +34,10 @@ describe("initial ranking experience", () => {
     expect(
       within(cardCarousel).getByText(/\$37\.95 per \$50 ticket over the long run/i),
     ).toBeVisible();
-    expect(within(cardCarousel).getByText("About 71.6¢ in prizes per $1 over the long run")).toBeVisible();
+    expect(within(cardCarousel).getByText("71.6¢ per $1.00")).toBeVisible();
+    expect(
+      screen.getAllByText("Bar scale: 50¢–$1.00 returned per $1.00").length,
+    ).toBeGreaterThanOrEqual(2);
     expect(within(cardCarousel).getAllByText("Why rank #1").length).toBeGreaterThan(0);
     expect(
       within(cardCarousel).getAllByText(/ordered by estimated return without the top prize/i).length,

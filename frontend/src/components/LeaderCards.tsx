@@ -8,8 +8,10 @@ import {
   formatMoney,
   formatOneIn,
   formatRelativeToLaunch,
+  getMetricScale,
   getSupportingEv,
   getStrategy,
+  metricBarWidth,
 } from "../lib/strategies";
 import { explainRank } from "../lib/decisionSupport";
 import type { RankingRecord } from "../types/rankings";
@@ -19,14 +21,12 @@ import { JackpotDependenceSummary } from "./JackpotDependence";
 
 interface LeaderCardsProps {
   rankings: RankingRecord[];
-  maxMetric: number;
   filteredByPrice: boolean;
   viewState: RankingViewState;
 }
 
 export function LeaderCards({
   rankings,
-  maxMetric,
   filteredByPrice,
   viewState,
 }: LeaderCardsProps) {
@@ -109,11 +109,15 @@ export function LeaderCards({
   };
 
   const carouselLabel = formatCardRange(activeIndex, visibleCount, rankings.length);
+  const scaleLabel = getMetricScale(viewState.strategy).label;
 
   return (
     <div className="leader-carousel">
       <div className="leader-carousel__toolbar">
-        <p aria-live="polite">{carouselLabel}</p>
+        <div>
+          <p aria-live="polite">{carouselLabel}</p>
+          <small className="metric-scale-note">{scaleLabel}</small>
+        </div>
         <div className="leader-carousel__buttons" aria-label="Browse ranked cards">
           <button
             aria-label="Show previous ranked games"
@@ -144,6 +148,7 @@ export function LeaderCards({
         {rankings.map((record, index) => {
           const supportingEv = getSupportingEv(record);
           const rankExplanation = explainRank(record, rankings, filteredByPrice);
+          const secondary = secondaryMetric(record);
           return (
             <article className="leader-card" data-position={index + 1} key={record.gameId}>
               <Link
@@ -163,13 +168,13 @@ export function LeaderCards({
                 <div className="leader-card__metric">
                 <span>{getStrategy(record.strategyKey).metricLabel}</span>
                 <strong>{primaryMetric(record)}</strong>
-                <small>{secondaryMetric(record)}</small>
+                {secondary ? <small>{secondary}</small> : null}
                 </div>
                 <progress
-                aria-label="Relative metric within this comparison"
+                aria-label={metricBarAriaLabel(record)}
                 className="metric-track"
                 max="100"
-                value={relativeWidth(record.metricValue, maxMetric)}
+                value={metricBarWidth(record.metricValue, record.strategyKey)}
                 />
                 <dl className="leader-card__details">
                 <div>
@@ -333,19 +338,23 @@ export function primaryMetric(record: RankingRecord): string {
   if (getStrategy(record.strategyKey).kind === "probability" && record.oneInValue !== null) {
     return formatOneIn(record.oneInValue);
   }
-  return formatMetric(record);
-}
-
-export function secondaryMetric(record: RankingRecord): string {
-  if (getStrategy(record.strategyKey).kind === "probability") {
-    return `${formatMetric(record)} estimated chance`;
-  }
+  if (getStrategy(record.strategyKey).kind === "probability") return formatMetric(record);
   return formatCentsPerDollar(record.metricValue);
 }
 
-export function relativeWidth(value: number, maximum: number): number {
-  if (maximum <= 0) return 0;
-  return Math.max(5, Math.min(100, (value / maximum) * 100));
+export function secondaryMetric(record: RankingRecord): string | null {
+  if (getStrategy(record.strategyKey).kind === "probability") {
+    return `${formatMetric(record)} estimated chance`;
+  }
+  return null;
+}
+
+export function metricBarAriaLabel(record: RankingRecord): string {
+  const secondary = secondaryMetric(record);
+  const exactValue = secondary
+    ? `${primaryMetric(record)}; ${secondary}`
+    : primaryMetric(record);
+  return `${exactValue}. ${getMetricScale(record.strategyKey).label}`;
 }
 
 export function formatRemainingCount(

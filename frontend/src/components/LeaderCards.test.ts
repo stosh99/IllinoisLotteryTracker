@@ -6,6 +6,7 @@ import {
   getCarouselPageStarts,
   getVisibleCardRange,
   primaryMetric,
+  metricBarAriaLabel,
   sampleDescription,
   secondaryMetric,
 } from "./LeaderCards";
@@ -44,6 +45,16 @@ describe("leader-card carousel labels", () => {
 
     expect(primaryMetric(record)).toMatch(/^1 in /);
     expect(secondaryMetric(record)).toMatch(/estimated chance$/);
+    expect(metricBarAriaLabel(record)).toMatch(/Bar scale: 0%–40% chance$/);
+  });
+
+  it("uses cents per dollar as the primary value metric", () => {
+    const record = rankingDatasetFixture.rankings.find(
+      (candidate) => candidate.strategyKey === "value_ex_top",
+    )!;
+
+    expect(primaryMetric(record)).toMatch(/¢ per \$1\.00$/);
+    expect(secondaryMetric(record)).toBeNull();
   });
 
   it("describes prize-sample size without calling it a winning confidence", () => {

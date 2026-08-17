@@ -10,6 +10,13 @@ export interface StrategyDefinition {
   kind: "ratio" | "probability";
 }
 
+export interface MetricScaleDefinition {
+  label: string;
+  mode: "linear" | "logarithmic";
+  minimum: number;
+  maximum: number;
+}
+
 export const PRIMARY_STRATEGIES: readonly StrategyDefinition[] = [
   {
     key: "value_ex_top",
@@ -127,7 +134,63 @@ export function formatCentsPerDollar(value: number): string {
   const formatted = new Intl.NumberFormat("en-US", {
     maximumFractionDigits: cents < 1 ? 2 : 1,
   }).format(cents);
-  return `About ${formatted}¢ in prizes per $1 over the long run`;
+  return `${formatted}¢ per $1.00`;
+}
+
+const METRIC_SCALES: Record<StrategyKey, MetricScaleDefinition> = {
+  value_ex_top: {
+    label: "Bar scale: 50¢–$1.00 returned per $1.00",
+    mode: "linear",
+    minimum: 0.5,
+    maximum: 1,
+  },
+  value_full: {
+    label: "Bar scale: 50¢–$1.00 returned per $1.00",
+    mode: "linear",
+    minimum: 0.5,
+    maximum: 1,
+  },
+  any_win: {
+    label: "Bar scale: 0%–40% chance",
+    mode: "linear",
+    minimum: 0,
+    maximum: 0.4,
+  },
+  profit_full: {
+    label: "Bar scale: 0%–30% chance",
+    mode: "linear",
+    minimum: 0,
+    maximum: 0.3,
+  },
+  moderate_10x_full: {
+    label: "Bar scale: 0%–5% chance",
+    mode: "linear",
+    minimum: 0,
+    maximum: 0.05,
+  },
+  jackpot_top_odds: {
+    label: "Bar scale: logarithmic, 1 in 10M to 1 in 100",
+    mode: "logarithmic",
+    minimum: 1 / 10_000_000,
+    maximum: 1 / 100,
+  },
+};
+
+export function getMetricScale(key: StrategyKey): MetricScaleDefinition {
+  return METRIC_SCALES[key];
+}
+
+export function metricBarWidth(value: number, key: StrategyKey): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+
+  const scale = getMetricScale(key);
+  const normalized =
+    scale.mode === "logarithmic"
+      ? (Math.log10(value) - Math.log10(scale.minimum)) /
+        (Math.log10(scale.maximum) - Math.log10(scale.minimum))
+      : (value - scale.minimum) / (scale.maximum - scale.minimum);
+
+  return Math.max(0, Math.min(100, normalized * 100));
 }
 
 export function formatLongRunReturn(

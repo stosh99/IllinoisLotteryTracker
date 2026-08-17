@@ -148,7 +148,6 @@ function RankingExperience({
         .sort((left, right) => left.rankOverall - right.rankOverall),
     [strategyRows, viewState.ticketPrice],
   );
-  const maxMetric = Math.max(...filtered.map((row) => row.metricValue), 0);
   const visibleRows = filtered.slice(0, visibleRowCount);
   const hiddenRowCount = filtered.length - visibleRows.length;
 
@@ -192,7 +191,6 @@ function RankingExperience({
           <>
             <LeaderCards
               rankings={filtered}
-              maxMetric={maxMetric}
               filteredByPrice={viewState.ticketPrice !== "all"}
               viewState={viewState}
             />
@@ -212,7 +210,6 @@ function RankingExperience({
             </div>
             <RankingsTable
               rankings={visibleRows}
-              maxMetric={maxMetric}
               filteredByPrice={viewState.ticketPrice !== "all"}
               viewState={viewState}
             />

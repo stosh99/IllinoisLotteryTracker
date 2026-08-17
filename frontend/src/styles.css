@@ -1485,6 +1485,21 @@ dd {
   border-radius: 999px;
 }
 
+.metric-scale-note {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.35;
+  text-transform: none;
+}
+
+.ranking-table thead .metric-scale-note {
+  color: #c6d5df;
+}
+
 .leader-card__details {
   display: grid;
   grid-template-columns: 1fr 1fr;

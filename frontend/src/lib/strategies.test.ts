@@ -5,13 +5,31 @@ import {
   formatLongRunReturn,
   formatOneIn,
   formatRelativeToLaunch,
+  getMetricScale,
+  metricBarWidth,
 } from "./strategies";
 
 describe("player-facing metric language", () => {
   it("translates a payout ratio into cents per dollar", () => {
-    expect(formatCentsPerDollar(0.716)).toBe(
-      "About 71.6¢ in prizes per $1 over the long run",
-    );
+    expect(formatCentsPerDollar(0.716)).toBe("71.6¢ per $1.00");
+  });
+
+  it("uses stable disclosed scales for value and chance comparisons", () => {
+    expect(metricBarWidth(0.5, "value_ex_top")).toBe(0);
+    expect(metricBarWidth(0.75, "value_ex_top")).toBe(50);
+    expect(metricBarWidth(1, "value_full")).toBe(100);
+    expect(metricBarWidth(0.2, "any_win")).toBe(50);
+    expect(metricBarWidth(0.15, "profit_full")).toBe(50);
+    expect(metricBarWidth(0.025, "moderate_10x_full")).toBe(50);
+    expect(getMetricScale("any_win").label).toBe("Bar scale: 0%–40% chance");
+  });
+
+  it("uses a logarithmic jackpot scale across orders of magnitude", () => {
+    expect(metricBarWidth(0, "jackpot_top_odds")).toBe(0);
+    expect(metricBarWidth(1 / 10_000_000, "jackpot_top_odds")).toBe(0);
+    expect(metricBarWidth(1 / 100_000, "jackpot_top_odds")).toBeCloseTo(40);
+    expect(metricBarWidth(1 / 100, "jackpot_top_odds")).toBe(100);
+    expect(getMetricScale("jackpot_top_odds").mode).toBe("logarithmic");
   });
 
   it("anchors estimated return to ticket price and the long run", () => {

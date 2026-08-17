@@ -1,8 +1,10 @@
 import {
   formatLongRunReturn,
   formatMoney,
+  getMetricScale,
   getStrategy,
   getSupportingEv,
+  metricBarWidth,
 } from "../lib/strategies";
 import type { RankingRecord } from "../types/rankings";
 import type { RankingViewState } from "../types/rankings";
@@ -12,21 +14,19 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   ConfidenceBadge,
   formatRemainingCount,
+  metricBarAriaLabel,
   primaryMetric,
-  relativeWidth,
   secondaryMetric,
 } from "./LeaderCards";
 
 interface RankingsTableProps {
   rankings: RankingRecord[];
-  maxMetric: number;
   filteredByPrice: boolean;
   viewState: RankingViewState;
 }
 
 export function RankingsTable({
   rankings,
-  maxMetric,
   filteredByPrice,
   viewState,
 }: RankingsTableProps) {
@@ -35,6 +35,7 @@ export function RankingsTable({
   const metricHeader = rankings[0]
     ? getStrategy(rankings[0].strategyKey).metricLabel
     : "Selected estimated measure";
+  const scaleLabel = getMetricScale(viewState.strategy).label;
   return (
     <div className="ranking-table-wrap" id="all-rankings-table">
       <table className="ranking-table">
@@ -47,7 +48,10 @@ export function RankingsTable({
             <th scope="col">Rank</th>
             <th scope="col">Game</th>
             <th scope="col">Price</th>
-            <th scope="col">{metricHeader}</th>
+            <th scope="col">
+              {metricHeader}
+              <small className="metric-scale-note">{scaleLabel}</small>
+            </th>
             <th scope="col">{evHeader}</th>
             <th scope="col">Top prize</th>
             <th scope="col">Prize sample</th>
@@ -57,6 +61,7 @@ export function RankingsTable({
           {rankings.map((record) => {
             const supportingEv = getSupportingEv(record);
             const rankExplanation = explainRank(record, rankings, filteredByPrice);
+            const secondary = secondaryMetric(record);
             return (
               <tr
                 className="ranking-table__clickable-row"
@@ -88,13 +93,13 @@ export function RankingsTable({
                 <td data-label={metricHeader} className="table-metric">
                   <div>
                     <strong>{primaryMetric(record)}</strong>
-                    <small>{secondaryMetric(record)}</small>
+                    {secondary ? <small>{secondary}</small> : null}
                   </div>
                   <progress
-                    aria-label="Relative metric within this comparison"
+                    aria-label={metricBarAriaLabel(record)}
                     className="metric-track"
                     max="100"
-                    value={relativeWidth(record.metricValue, maxMetric)}
+                    value={metricBarWidth(record.metricValue, record.strategyKey)}
                   />
                   <small className="table-rank-explanation">
                     {rankExplanation.comparison}
