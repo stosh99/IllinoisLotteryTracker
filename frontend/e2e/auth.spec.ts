@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { gameDetailFixture } from "../src/test/gameDetailFixture";
 import { rankingDatasetFixture } from "../src/test/rankingDatasetFixture";
 
 const disabledSession = {
@@ -41,6 +42,15 @@ async function mockRankings(page: Page) {
 }
 
 async function mockEmptyTicketHistory(page: Page) {
+  // The entry form loads the selected game's prize tiers for the amount-won list.
+  await page.route("**/api/v1/games/*", (route) => {
+    const gameId = Number(new URL(route.request().url()).pathname.split("/").pop());
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ...gameDetailFixture, gameId }),
+    });
+  });
   await page.route("**/api/v1/ticket-entries", (route) =>
     route.fulfill({
       status: 200,

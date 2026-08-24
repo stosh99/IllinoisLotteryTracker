@@ -149,7 +149,7 @@ test("comparison explains estimates and keeps the carousel counter truthful", as
   await expect(page.getByText("Calculated", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Estimate", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Lag-adjusted estimate", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText(/in prizes per \$1 over the long run/).first()).toBeVisible();
+  await expect(page.getByText(/\d¢ per \$1\.00/).first()).toBeVisible();
   await expect(page.getByText(/per \$\d+ ticket over the long run/).first()).toBeVisible();
   await expect(page.getByText(/prize sample/).first()).toBeVisible();
   await expect(page.getByText("Why rank #1", { exact: true }).first()).toBeVisible();
