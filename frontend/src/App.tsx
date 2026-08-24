@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BrowserRouter, Outlet, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, Link, Outlet, Route, Routes, useLocation } from "react-router-dom";
 
 import { AuthResultNotice } from "./components/AuthResultNotice";
 import { BrandMark } from "./components/BrandMark";
@@ -16,6 +16,7 @@ import { TicketFinder } from "./components/TicketFinder";
 import { UnavailableState } from "./components/UnavailableState";
 import { AuthSessionProvider } from "./context/AuthSessionProvider";
 import { SiteDataProvider, useSiteData } from "./context/SiteDataProvider";
+import { useAuthSession } from "./hooks/useAuthSession";
 import { useRankingViewState } from "./hooks/useRankingViewState";
 import { getStrategy } from "./lib/strategies";
 import { comparisonHref, DEFAULT_VIEW_STATE, parseViewState } from "./lib/urlState";
@@ -244,6 +245,7 @@ function SiteHeader() {
   const location = useLocation();
   const viewState = parseViewState(location.search);
   const { dataset } = useSiteData();
+  const { state: authState } = useAuthSession();
   return (
     <header className="site-header">
       <div className="site-header__left">
@@ -261,8 +263,11 @@ function SiteHeader() {
       </div>
       <nav aria-label="Primary navigation">
         <a href={comparisonHref(viewState, "#player-types")}>Player types</a>
-        <a href="/tickets">All tickets</a>
+        <a href="/tickets">All games</a>
         <a href={comparisonHref(viewState, "#methodology")}>Methodology</a>
+        {authState.status === "authenticated" ? (
+          <Link to="/account#ticket-history">My ticket history</Link>
+        ) : null}
       </nav>
       <div className="site-header__account">
         <SignInControl />

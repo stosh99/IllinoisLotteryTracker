@@ -154,7 +154,10 @@ export function uniqueGames(dataset: RankingDataset | null): TicketOption[] {
       });
     }
   }
-  return [...byId.values()].sort((left, right) => left.gameName.localeCompare(right.gameName));
+  return [...byId.values()].sort(
+    (left, right) =>
+      left.ticketPrice - right.ticketPrice || left.gameName.localeCompare(right.gameName),
+  );
 }
 
 export function formatTicketOption(game: TicketOption): string {

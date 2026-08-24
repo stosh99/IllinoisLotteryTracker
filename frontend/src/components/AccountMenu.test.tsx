@@ -70,10 +70,11 @@ describe("account controls", () => {
     const summary = await screen.findByText("Account", { selector: "summary" });
     await user.click(summary);
     expect(screen.getByText("p@example.test")).toBeVisible();
-    expect(screen.getByRole("link", { name: "My ticket history" })).toHaveAttribute(
-      "href",
-      "/account#ticket-history",
-    );
+    // "My ticket history" now also lives in the primary nav for signed-in users.
+    for (const link of screen.getAllByRole("link", { name: "My ticket history" })) {
+      expect(link).toHaveAttribute("href", "/account#ticket-history");
+    }
+    expect(screen.getAllByRole("link", { name: "My ticket history" })).toHaveLength(2);
     expect(screen.getByRole("link", { name: "Account settings" })).toHaveAttribute(
       "href",
       "/account#account-security",

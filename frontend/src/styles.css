@@ -3427,14 +3427,14 @@ dd {
 
 .ticket-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   margin: 0 0 1.5rem;
   background: var(--surface);
   border: 1px solid var(--line);
 }
 
 .ticket-summary > div {
-  padding: 1.15rem 1.25rem;
+  padding: 1rem 0.9rem;
   border-right: 1px solid var(--line);
 }
 
@@ -3456,8 +3456,9 @@ dd {
   margin-top: 0.3rem;
   color: var(--navy-deep);
   font-family: Georgia, Cambria, "Times New Roman", serif;
-  font-size: 1.65rem;
+  font-size: 1.35rem;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .ticket-summary [data-tone="negative"] dd,
@@ -3472,7 +3473,7 @@ dd {
 
 .ticket-entry-form {
   display: grid;
-  grid-template-columns: minmax(260px, 1.5fr) minmax(150px, 0.7fr) minmax(130px, 0.55fr) minmax(150px, 0.7fr);
+  grid-template-columns: minmax(110px, 0.5fr) minmax(240px, 1.6fr) minmax(140px, 0.7fr) minmax(140px, 0.7fr) auto;
   gap: 0.9rem;
   align-items: end;
   padding: 1.25rem;
@@ -3509,6 +3510,7 @@ dd {
   min-height: 44px;
   padding: 0.65rem 0.7rem;
   color: var(--ink);
+  font-size: 1rem;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 0.25rem;
@@ -3533,24 +3535,202 @@ dd {
   padding-left: 1.5rem;
 }
 
-.ticket-entry-form__total {
-  display: grid;
-  grid-column: 1 / 4;
-  gap: 0.25rem;
-  align-self: stretch;
-  align-content: center;
-  padding: 0 0.25rem;
+.ticket-entry-form > .button {
+  grid-column: 5;
+  min-height: 44px;
+  white-space: nowrap;
 }
 
-.ticket-entry-form__total strong {
+.winnings-chart {
+  padding: 1.25rem;
+  margin-top: 1.5rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--navy);
+}
+
+.winnings-chart__heading h2 {
+  margin-bottom: 0.25rem;
   color: var(--navy-deep);
   font-family: Georgia, Cambria, "Times New Roman", serif;
-  font-size: 1.35rem;
+  font-size: 1.5rem;
 }
 
-.ticket-entry-form > .button {
-  grid-column: 4;
-  align-self: stretch;
+.winnings-chart__heading p {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.winnings-chart__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem 1.5rem;
+  align-items: end;
+  margin-bottom: 1rem;
+}
+
+.chart-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.chart-pills button {
+  min-width: 44px;
+  min-height: 40px;
+  padding: 0.45rem 0.8rem;
+  color: var(--navy-deep);
+  font-size: 0.8rem;
+  font-weight: 800;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.chart-pills button:hover {
+  border-color: var(--navy);
+}
+
+.chart-pills button.is-active {
+  color: white;
+  background: var(--navy);
+  border-color: var(--navy);
+}
+
+.winnings-chart__game {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 260px;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 900;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.winnings-chart__game select {
+  min-height: 40px;
+  padding: 0.45rem 0.7rem;
+  color: var(--ink);
+  font-size: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+}
+
+.winnings-chart__plot {
+  position: relative;
+}
+
+.winnings-chart__plot svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.winnings-chart__grid-major {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.winnings-chart__grid-minor {
+  stroke: var(--paper-deep);
+  stroke-width: 1;
+}
+
+.winnings-chart__zero {
+  stroke: var(--muted);
+  stroke-dasharray: 4 3;
+  stroke-width: 1;
+}
+
+.winnings-chart__crosshair {
+  stroke: var(--muted);
+  stroke-dasharray: 2 3;
+  stroke-width: 1;
+}
+
+.winnings-chart__segment {
+  stroke-linecap: round;
+  stroke-width: 2;
+}
+
+.winnings-chart__segment.is-positive {
+  stroke: var(--green);
+}
+
+.winnings-chart__segment.is-negative {
+  stroke: var(--rust);
+}
+
+.winnings-chart__segment.is-neutral {
+  stroke: var(--muted);
+}
+
+.winnings-chart__dot.is-positive {
+  fill: var(--green);
+}
+
+.winnings-chart__dot.is-negative {
+  fill: var(--rust);
+}
+
+.winnings-chart__dot.is-neutral {
+  fill: var(--muted);
+}
+
+.winnings-chart__dot.is-entry {
+  stroke: var(--surface);
+  stroke-width: 1;
+}
+
+.winnings-chart__axis-label {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.winnings-chart__tooltip {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.75rem;
+  pointer-events: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 0.3rem;
+  box-shadow: 0 2px 10px rgb(9 29 48 / 12%);
+  transform: translate(12px, -50%);
+}
+
+.winnings-chart__tooltip[data-side="left"] {
+  transform: translate(calc(-100% - 12px), -50%);
+}
+
+.winnings-chart__tooltip strong {
+  color: var(--navy-deep);
+}
+
+.winnings-chart__tooltip span {
+  color: var(--ink);
+}
+
+.winnings-chart__tooltip [data-tone="negative"] {
+  color: var(--rust);
+}
+
+.winnings-chart__tooltip [data-tone="positive"] {
+  color: var(--green);
+}
+
+.winnings-chart__empty {
+  padding: 1.5rem 0 0.5rem;
+  margin: 0;
+  color: var(--muted);
+  text-align: center;
 }
 
 .ticket-tracker__error {
@@ -3858,12 +4038,9 @@ dd {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .ticket-entry-form__total {
-    grid-column: 1;
-  }
-
   .ticket-entry-form > .button {
-    grid-column: 2;
+    grid-column: 1 / -1;
+    justify-self: start;
   }
 }
 
@@ -4188,21 +4365,29 @@ dd {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .ticket-summary > div:nth-child(2) {
+  .ticket-summary > div:nth-child(2n) {
     border-right: 0;
   }
 
-  .ticket-summary > div:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--line);
+  .ticket-summary > div:nth-child(2n + 1) {
+    border-right: 1px solid var(--line);
+  }
+
+  .ticket-summary > div:last-child {
+    border-right: 0;
+  }
+
+  .ticket-summary > div:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
   }
 
   .ticket-entry-form {
     grid-template-columns: 1fr;
   }
 
-  .ticket-entry-form__total,
   .ticket-entry-form > .button {
     grid-column: 1;
+    justify-self: stretch;
   }
 
   .hero {

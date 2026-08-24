@@ -289,7 +289,7 @@ test("configured comparison state survives history, detail navigation, and shari
   );
   await lakefront.click();
   await expect(page).toHaveURL(/\/games\/102\?strategy=value_full&price=10$/);
-  await expect(page.locator(".site-header nav a").filter({ hasText: "All tickets" })).toHaveAttribute(
+  await expect(page.locator(".site-header nav a").filter({ hasText: "All games" })).toHaveAttribute(
     "href",
     "/tickets",
   );

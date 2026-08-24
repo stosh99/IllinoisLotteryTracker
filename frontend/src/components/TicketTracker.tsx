@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { useAuthSession } from "../hooks/useAuthSession";
+import { loadGameDetail } from "../services/gameDetails";
 import {
   createTicketEntry,
   deleteTicketEntry,
@@ -8,6 +9,7 @@ import {
 } from "../services/ticketEntries";
 import type { TicketHistory } from "../types/ticketEntries";
 import { formatTicketOption, type TicketOption } from "./TicketFinder";
+import { WinningsChart } from "./WinningsChart";
 
 const EMPTY_HISTORY: TicketHistory = {
   summary: {
@@ -29,14 +31,26 @@ export function TicketTracker({ games }: { games: TicketOption[] }) {
   const [saving, setSaving] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [requestVersion, setRequestVersion] = useState(0);
+  const [priceFilter, setPriceFilter] = useState<"all" | number>("all");
   const [gameId, setGameId] = useState(games[0]?.gameId ?? 0);
   const [playedOn, setPlayedOn] = useState(todayLocal());
-  const [ticketCount, setTicketCount] = useState(1);
   const [amountWon, setAmountWon] = useState(0);
+  const [prizeAmounts, setPrizeAmounts] = useState<number[] | null>(null);
+
+  const prices = useMemo(
+    () => [...new Set(games.map((game) => game.ticketPrice))].sort((a, b) => a - b),
+    [games],
+  );
+  const filteredGames = useMemo(
+    () => games.filter((game) => priceFilter === "all" || game.ticketPrice === priceFilter),
+    [games, priceFilter],
+  );
 
   useEffect(() => {
-    if (gameId === 0 && games[0]) setGameId(games[0].gameId);
-  }, [gameId, games]);
+    const first = filteredGames[0];
+    if (!first) return;
+    if (!filteredGames.some((game) => game.gameId === gameId)) setGameId(first.gameId);
+  }, [filteredGames, gameId]);
 
   useEffect(() => {
     if (state.status !== "authenticated") return;
@@ -54,11 +68,31 @@ export function TicketTracker({ games }: { games: TicketOption[] }) {
     return () => controller.abort();
   }, [requestVersion, state.status]);
 
+  useEffect(() => {
+    if (state.status !== "authenticated" || gameId === 0) return;
+    const controller = new AbortController();
+    setPrizeAmounts(null);
+    setAmountWon(0);
+    loadGameDetail(gameId, controller.signal)
+      .then((detail) => {
+        const amounts = [...new Set(detail.tiers.map((tier) => tier.prizeAmount))].sort(
+          (a, b) => a - b,
+        );
+        if (amounts.length > 0) setPrizeAmounts(amounts);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [gameId, state.status]);
+
   const selectedGame = useMemo(
     () => games.find((game) => game.gameId === gameId) ?? null,
     [gameId, games],
   );
-  const expectedSpent = (selectedGame?.ticketPrice ?? 0) * ticketCount;
+  // A winning ticket is any ticket that returned a prize; multi-ticket legacy
+  // entries are assumed to hold one winning ticket when they have winnings.
+  const winningTickets = history.entries.filter((entry) => entry.amountWon > 0).length;
+  const losingTickets = Math.max(0, history.summary.ticketCount - winningTickets);
+  const biggestWin = history.entries.reduce((max, entry) => Math.max(max, entry.amountWon), 0);
 
   if (state.status !== "authenticated") return null;
   const csrfToken = state.session.csrfToken;
@@ -69,8 +103,7 @@ export function TicketTracker({ games }: { games: TicketOption[] }) {
     setSaving(true);
     setError(false);
     try {
-      await createTicketEntry({ gameId, playedOn, ticketCount, amountWon }, csrfToken);
-      setTicketCount(1);
+      await createTicketEntry({ gameId, playedOn, ticketCount: 1, amountWon }, csrfToken);
       setAmountWon(0);
       setRequestVersion((value) => value + 1);
     } catch {
@@ -96,7 +129,7 @@ export function TicketTracker({ games }: { games: TicketOption[] }) {
       <div className="ticket-tracker__heading">
         <div>
           <p className="eyebrow">MY TICKETS</p>
-          <h1 id="ticket-history-title">Track what you spent and won.</h1>
+          <h1 id="ticket-history-title">Track your results.</h1>
           <p>Private records tied to your account. Totals describe past results only.</p>
         </div>
       </div>
@@ -109,17 +142,32 @@ export function TicketTracker({ games }: { games: TicketOption[] }) {
           label="Prize return"
           value={history.summary.returnPercentage === null ? "—" : `${formatNumber(history.summary.returnPercentage)}%`}
         />
+        <Summary label="Winning tickets" value={formatNumber(winningTickets)} />
+        <Summary label="Losing tickets" value={formatNumber(losingTickets)} />
+        <Summary label="Biggest winner" value={money(biggestWin)} />
       </dl>
 
       <form className="ticket-entry-form" id="ticket-entry" onSubmit={(event) => void submit(event)}>
         <div className="ticket-entry-form__heading">
           <h2>Add a ticket result</h2>
-          <p>Enter several tickets together when they were the same game and purchase.</p>
+          <p>Each saved result records one ticket.</p>
         </div>
+        <label>
+          Ticket price
+          <select
+            onChange={(event) =>
+              setPriceFilter(event.target.value === "all" ? "all" : Number(event.target.value))
+            }
+            value={priceFilter}
+          >
+            <option value="all">All prices</option>
+            {prices.map((price) => <option key={price} value={price}>${price}</option>)}
+          </select>
+        </label>
         <label>
           Game
           <select required value={gameId} onChange={(event) => setGameId(Number(event.target.value))}>
-            {games.map((game) => <option key={game.gameId} value={game.gameId}>{formatTicketOption(game)}</option>)}
+            {filteredGames.map((game) => <option key={game.gameId} value={game.gameId}>{formatTicketOption(game)}</option>)}
           </select>
         </label>
         <label>
@@ -127,21 +175,23 @@ export function TicketTracker({ games }: { games: TicketOption[] }) {
           <input max={todayLocal()} onChange={(event) => setPlayedOn(event.target.value)} required type="date" value={playedOn} />
         </label>
         <label>
-          Number of tickets
-          <input max="1000" min="1" onChange={(event) => setTicketCount(Number(event.target.value))} required type="number" value={ticketCount} />
+          Amount won
+          <select
+            disabled={prizeAmounts === null}
+            onChange={(event) => setAmountWon(Number(event.target.value))}
+            required
+            value={amountWon}
+          >
+            <option value={0}>{money(0)}</option>
+            {(prizeAmounts ?? []).map((amount) => <option key={amount} value={amount}>{money(amount)}</option>)}
+          </select>
         </label>
-        <label htmlFor="ticket-amount-won">
-          Total amount won
-          <span className="money-input"><span>$</span><input aria-label="Total amount won" id="ticket-amount-won" min="0" onChange={(event) => setAmountWon(Number(event.target.value))} required step="0.01" type="number" value={amountWon} /></span>
-        </label>
-        <div className="ticket-entry-form__total">
-          <span>Calculated amount spent</span>
-          <strong>{money(expectedSpent)}</strong>
-        </div>
         <button className="button" disabled={saving || games.length === 0} type="submit">
           {saving ? "Saving…" : "Save ticket result"}
         </button>
       </form>
+
+      {history.entries.length > 0 ? <WinningsChart entries={history.entries} /> : null}
 
       {error ? <p className="ticket-tracker__error" role="alert">Ticket history is temporarily unavailable. Please try again.</p> : null}
       {loading ? <p role="status">Loading ticket history…</p> : history.entries.length === 0 ? (
@@ -193,7 +243,13 @@ function todayLocal(): string {
 }
 
 function money(value: number): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
+  const digits = Number.isInteger(value) ? 0 : 2;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(value);
 }
 
 function signedMoney(value: number): string {
