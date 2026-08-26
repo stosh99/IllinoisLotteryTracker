@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 NGINX = ROOT / "deploy" / "nginx"
 NEW_ORIGIN = "http://127.0.0.1:8766"
@@ -41,5 +40,12 @@ def test_old_domain_is_redirect_only_and_keeps_old_tls_and_acme() -> None:
     assert document.count("return 301 https://scratchoffdata.com$request_uri;") == 3
     assert "proxy_pass" not in document
     assert "root /var/www/illinoislotterytracker;" in document
-    assert "ssl_certificate /etc/letsencrypt/live/illinoislotterytracker.com/fullchain.pem;" in document
-    assert "ssl_certificate_key /etc/letsencrypt/live/illinoislotterytracker.com/privkey.pem;" in document
+    assert (
+        "ssl_certificate /etc/letsencrypt/live/illinoislotterytracker.com/fullchain.pem;"
+        in document
+    )
+    assert (
+        "ssl_certificate_key "
+        "/etc/letsencrypt/live/illinoislotterytracker.com/privkey.pem;"
+        in document
+    )

@@ -3,6 +3,8 @@ import { expect, test, type Page } from "@playwright/test";
 import { gameDetailFixture } from "../src/test/gameDetailFixture";
 import { rankingDatasetFixture } from "../src/test/rankingDatasetFixture";
 
+const BASE_URL = `http://127.0.0.1:${process.env.PLAYWRIGHT_PORT ?? "4173"}`;
+
 const disabledSession = {
   authenticationAvailable: false,
   authenticated: false,
@@ -87,7 +89,9 @@ test("rankings remain usable when authentication is disabled", async ({ page }) 
   await page.goto("/");
   await expect(page.getByText(/Data valid as of/i)).toBeVisible();
   await expect(page.getByRole("table")).toBeVisible();
-  await page.getByRole("button", { name: "Log in" }).click();
+  const login = page.getByRole("button", { name: "Log in" });
+  await expect(login).toBeInViewport();
+  await login.click();
   await expect(page.getByText("Account sign-in is not enabled yet.")).toBeVisible();
   expect(await page.evaluate(() => [Object.keys(localStorage), sessionStorage.length])).toEqual([
     ["scratchoffdata.siteNotice"],
@@ -101,7 +105,9 @@ test("anonymous state presents a same-origin Google start navigation", async ({ 
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(anonymousSession) }),
   );
   await page.goto("/");
-  await expect(page.getByRole("link", { name: "Log in" })).toHaveAttribute(
+  const login = page.getByRole("link", { name: "Log in" });
+  await expect(login).toBeInViewport();
+  await expect(login).toHaveAttribute(
     "href",
     "/api/v1/auth/google/start?returnTo=%2F",
   );
@@ -360,14 +366,16 @@ test("fake-provider journey logs in, rejects replay, rotates, and deletes", asyn
     expect(authorization.searchParams.has("access_type")).toBe(false);
     expect(authorization.searchParams.get("scope")).not.toContain("profile");
     callbackTarget =
-      `http://127.0.0.1:4173/api/v1/auth/google/callback?` +
+      `${BASE_URL}/api/v1/auth/google/callback?` +
       `code=fake-code&state=${authorization.searchParams.get("state")}`;
     await route.fulfill({ status: 200, contentType: "text/html", body: "<h1>Fake Google</h1>" });
   });
 
   await page.goto("/");
   await expect(page.getByRole("table")).toBeVisible();
-  await page.getByRole("link", { name: "Log in" }).click();
+  const login = page.getByRole("link", { name: "Log in" });
+  await expect(login).toBeInViewport();
+  await login.click();
   await page.goto(providerTarget);
   await page.goto(callbackTarget);
   await page.goto(callbackLocation);
@@ -384,9 +392,7 @@ test("fake-provider journey logs in, rejects replay, rotates, and deletes", asyn
 
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByRole("link", { name: "Log in" })).toBeVisible();
-  await page.goto(
-    `http://127.0.0.1:4173/api/v1/auth/google/callback?code=replayed&state=${currentAttempt}`,
-  );
+  await page.goto(`${BASE_URL}/api/v1/auth/google/callback?code=replayed&state=${currentAttempt}`);
   await page.goto(callbackLocation);
   await expect(page.getByRole("link", { name: "Log in" })).toBeVisible();
   await expect(page).not.toHaveURL(/authResult=/);

@@ -4,6 +4,8 @@ import { gameDetailFixture } from "../src/test/gameDetailFixture";
 import { gameHistoryFixture } from "../src/test/gameHistoryFixture";
 import { rankingDatasetFixture } from "../src/test/rankingDatasetFixture";
 
+const BASE_URL = `http://127.0.0.1:${process.env.PLAYWRIGHT_PORT ?? "4173"}`;
+
 const disabledSession = {
   authenticationAvailable: false,
   authenticated: false,
@@ -268,7 +270,7 @@ test("game detail distinguishes official facts, calculations, and estimates", as
 
 test("configured comparison state survives history, detail navigation, and sharing", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"], {
-    origin: "http://127.0.0.1:4173",
+    origin: BASE_URL,
   });
   await page.goto("/?strategy=value_full&price=10#rankings");
 
@@ -313,13 +315,13 @@ test("configured comparison state survives history, detail navigation, and shari
   await page.getByRole("button", { name: "Copy this view" }).click();
   await expect(page.getByText("Comparison link copied.")).toBeVisible();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-    "http://127.0.0.1:4173/?strategy=value_full&price=10#rankings",
+    `${BASE_URL}/?strategy=value_full&price=10#rankings`,
   );
 });
 
 test("invalid public state falls back and copies a canonical default link", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"], {
-    origin: "http://127.0.0.1:4173",
+    origin: BASE_URL,
   });
   await page.goto("/?strategy=secret_score&price=-10&private=discard-me");
 
@@ -333,7 +335,7 @@ test("invalid public state falls back and copies a canonical default link", asyn
   );
   await page.getByRole("button", { name: "Copy this view" }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-    "http://127.0.0.1:4173/#rankings",
+    `${BASE_URL}/#rankings`,
   );
 });
 

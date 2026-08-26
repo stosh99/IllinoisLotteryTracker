@@ -67,7 +67,11 @@ def test_auth_middleware_replaces_inbound_request_id() -> None:
 def test_static_account_fallback_never_rewrites_api_misses() -> None:
     if not api.FRONTEND_DIST.joinpath("index.html").is_file():
         pytest.skip("frontend production build is not present")
-    route = next(route for route in api.app.routes if getattr(route, "path", None) == "/{spa_path:path}")
+    route = next(
+        route
+        for route in api.app.routes
+        if getattr(route, "path", None) == "/{spa_path:path}"
+    )
     assert route.endpoint("account").path == api.FRONTEND_DIST / "index.html"
     assert route.endpoint("tickets").path == api.FRONTEND_DIST / "index.html"
     with pytest.raises(HTTPException) as exc_info:
