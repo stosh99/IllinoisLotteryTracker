@@ -133,7 +133,7 @@ All of this happens on stoshai, not the VPS.
    DEV_DATABASE_URL=<development URL>      # inert to the app; import tooling only
    RAW_DATA_DIR=/home/stosh99/illinois-lottery-data/source-captures
 
-   PUBLIC_BASE_URL=https://illinoislotterytracker.com
+   PUBLIC_BASE_URL=https://scratchoffdata.com
    GOOGLE_OIDC_CLIENT_ID=<verified from Google>
    GOOGLE_OIDC_CLIENT_SECRET=<re-copied from Google — the current value is mistyped>
    AUTH_SECRET_KEYS=<newly generated; the old value was exposed in conversation>

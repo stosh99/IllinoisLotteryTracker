@@ -74,6 +74,12 @@ async function carouselLabelMatchesViewport(page: Page) {
 }
 
 test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "scratchoffdata.siteNotice",
+      JSON.stringify({ version: "2026-08-25-v1", acknowledgedAt: "2026-08-25T12:00:00.000Z" }),
+    );
+  });
   await mockPublicPages(page);
 });
 
@@ -206,8 +212,10 @@ test("comparison explains estimates and keeps the carousel counter truthful", as
   await selectedGoal.press("ArrowRight");
   await expect(playerChooser.getByRole("radio", { name: /Practical value/ })).toBeChecked();
 
-  await page.getByRole("button", { name: "Read this first" }).click();
-  await page.getByRole("link", { name: "How the estimates work" }).click();
+  await page.getByRole("button", { name: "Important information" }).click();
+  await expect(page.getByRole("button", { name: "Close" })).toBeVisible();
+  await page.getByRole("button", { name: "Close" }).click();
+  await page.locator("#methodology").scrollIntoViewIfNeeded();
   await expect(page.getByText(/does not mean one \$10 ticket is likely to pay \$7.42/i)).toBeVisible();
 
   expect(

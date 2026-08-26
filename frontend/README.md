@@ -1,4 +1,4 @@
-# Illinois Lottery Tracker frontend
+# Scratch-Off Data frontend
 
 The first public frontend slice for comparing Illinois instant-ticket games by
 one transparent strategy metric at a time.

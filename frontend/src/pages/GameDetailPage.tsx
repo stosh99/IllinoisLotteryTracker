@@ -54,7 +54,7 @@ export function GameDetailPage({ detailOverride, historyOverride }: GameDetailPa
   useEffect(() => {
     if (!detail) return;
     const previousTitle = document.title;
-    document.title = `${detail.gameName} | Illinois Lottery Tracker`;
+    document.title = `${detail.gameName} | Scratch-Off Data`;
     return () => {
       document.title = previousTitle;
     };

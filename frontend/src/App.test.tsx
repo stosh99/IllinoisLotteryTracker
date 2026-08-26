@@ -90,6 +90,24 @@ describe("initial ranking experience", () => {
     expect(screen.getByRole("search", { name: "Find a ticket" })).toBeVisible();
   });
 
+  it("uses the public brand in matching header and footer wordmarks", () => {
+    render(<App datasetOverride={rankingDatasetFixture} />);
+
+    const home = screen.getByRole("link", { name: "Scratch-Off Data home" });
+    expect(home).toHaveTextContent("Scratch-Off Data");
+    expect(screen.getAllByText("Scratch-Off Data")).toHaveLength(2);
+  });
+
+  it("publishes a path-aware canonical URL on the new domain", () => {
+    window.history.replaceState({}, "", "/tickets?strategy=value_full");
+    render(<App datasetOverride={rankingDatasetFixture} />);
+
+    expect(document.head.querySelector('link[rel="canonical"]')).toHaveAttribute(
+      "href",
+      "https://scratchoffdata.com/tickets",
+    );
+  });
+
   it("opens a game from the live header finder by name or number", async () => {
     const user = userEvent.setup();
     render(<App datasetOverride={rankingDatasetFixture} />);
@@ -103,16 +121,18 @@ describe("initial ranking experience", () => {
     expect(window.location.pathname).toBe("/games/102");
   });
 
-  it("keeps the important caveats in a compact header popover", async () => {
+  it("reopens the site notice from the updated header trigger", async () => {
     const user = userEvent.setup();
     render(<App datasetOverride={rankingDatasetFixture} />);
 
-    const trigger = screen.getByRole("button", { name: "Read this first" });
-    expect(screen.queryByRole("dialog", { name: "Important information" })).not.toBeInTheDocument();
+    const trigger = screen.getByRole("button", { name: "Important information" });
+    expect(screen.queryByRole("dialog", { name: "Before you use the estimates" })).not.toBeInTheDocument();
     await user.click(trigger);
-    const popover = screen.getByRole("dialog", { name: "Important information" });
-    expect(popover).toHaveTextContent("game-wide prize pool");
-    expect(popover).toHaveTextContent("not affiliated with the Illinois Lottery");
+    const dialog = screen.getByRole("dialog", { name: "Before you use the estimates" });
+    expect(dialog).toHaveTextContent("game-wide prize pools");
+    expect(dialog).toHaveTextContent("not affiliated with, endorsed by");
+    expect(within(dialog).getByRole("button", { name: "Close" })).toBeVisible();
+    expect(screen.queryByText("Read this first")).not.toBeInTheDocument();
   });
 
   it("offers a jackpot-inclusive profit comparison without duplicate odds", async () => {

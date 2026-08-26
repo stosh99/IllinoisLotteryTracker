@@ -70,6 +70,15 @@ async function mockEmptyTicketHistory(page: Page) {
   );
 }
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "scratchoffdata.siteNotice",
+      JSON.stringify({ version: "2026-08-25-v1", acknowledgedAt: "2026-08-25T12:00:00.000Z" }),
+    );
+  });
+});
+
 test("rankings remain usable when authentication is disabled", async ({ page }) => {
   await mockRankings(page);
   await page.route("**/api/v1/auth/session", (route) =>
@@ -80,7 +89,10 @@ test("rankings remain usable when authentication is disabled", async ({ page }) 
   await expect(page.getByRole("table")).toBeVisible();
   await page.getByRole("button", { name: "Log in" }).click();
   await expect(page.getByText("Account sign-in is not enabled yet.")).toBeVisible();
-  expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
+  expect(await page.evaluate(() => [Object.keys(localStorage), sessionStorage.length])).toEqual([
+    ["scratchoffdata.siteNotice"],
+    0,
+  ]);
 });
 
 test("anonymous state presents a same-origin Google start navigation", async ({ page }) => {
@@ -126,7 +138,10 @@ test("authenticated account route works on direct load without client storage", 
   await page.goto("/account");
   await expect(page.getByRole("heading", { name: "Signed-in sessions" })).toBeVisible();
   await expect(page.getByText("Current session")).toBeVisible();
-  expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
+  expect(await page.evaluate(() => [Object.keys(localStorage), sessionStorage.length])).toEqual([
+    ["scratchoffdata.siteNotice"],
+    0,
+  ]);
   expect(errors).toEqual([]);
 });
 
@@ -172,7 +187,10 @@ test("stale deletion discards confirmation before one-time Google navigation", a
   await expect(page).toHaveURL(
     "https://accounts.google.com/o/oauth2/v2/auth?state=bounded",
   );
-  expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
+  expect(await page.evaluate(() => [Object.keys(localStorage), sessionStorage.length])).toEqual([
+    ["scratchoffdata.siteNotice"],
+    0,
+  ]);
 });
 
 test("fake-provider journey logs in, rejects replay, rotates, and deletes", async ({ page }) => {
@@ -356,7 +374,10 @@ test("fake-provider journey logs in, rejects replay, rotates, and deletes", asyn
   await expect(page.getByText("Account", { exact: true })).toBeVisible();
   expect(authorizationRequests).toHaveLength(1);
   expect(await page.evaluate(() => document.cookie)).toBe("");
-  expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
+  expect(await page.evaluate(() => [Object.keys(localStorage), sessionStorage.length])).toEqual([
+    ["scratchoffdata.siteNotice"],
+    0,
+  ]);
   await page.reload();
   await page.getByText("Account", { exact: true }).click();
   await expect(page.getByText("player@example.test")).toBeVisible();
@@ -390,6 +411,9 @@ test("fake-provider journey logs in, rejects replay, rotates, and deletes", asyn
   expect(authenticated).toBe(false);
   expect(deletionAttempts).toBe(2);
   expect(await page.evaluate(() => document.cookie)).toBe("");
-  expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
+  expect(await page.evaluate(() => [Object.keys(localStorage), sessionStorage.length])).toEqual([
+    ["scratchoffdata.siteNotice"],
+    0,
+  ]);
   expect(unexpectedExternal).toEqual([]);
 });

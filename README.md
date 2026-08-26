@@ -14,13 +14,15 @@ Google OIDC authentication and local account/session management are implemented
 but deliberately disabled pending a separate public-authentication readiness decision.
 Personal play tracking is not built yet.
 
-The public site is [illinoislotterytracker.com](https://illinoislotterytracker.com).
+The canonical public site is [scratchoffdata.com](https://scratchoffdata.com).
 Development and production are separated. One database-free collector feeds immutable
 evidence bundles to independent databases and importers; Nginx exposes only the
 loopback-bound production application over HTTPS.
 See
 [docs/environment_separation/IMPLEMENTATION_STATUS.md](docs/environment_separation/IMPLEMENTATION_STATUS.md)
 for the verified state and rollback boundary.
+The controlled public-domain cutover and rollback procedure is
+[deploy/DOMAIN_MIGRATION.md](deploy/DOMAIN_MIGRATION.md).
 
 See [docs/project-brief.md](docs/project-brief.md) for the longer plan.
 

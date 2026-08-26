@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { BrowserRouter, Link, Outlet, Route, Routes, useLocation } from "react-router-dom";
 
 import { AuthResultNotice } from "./components/AuthResultNotice";
@@ -6,7 +6,12 @@ import { BrandMark } from "./components/BrandMark";
 import { EvidenceGuide, EvidenceTag } from "./components/EvidenceGuide";
 import { HeaderDataStamp } from "./components/HeaderDataStamp";
 import { LeaderCards } from "./components/LeaderCards";
-import { ReadFirstPopover } from "./components/ReadFirstPopover";
+import {
+  hasCurrentSiteNoticeAcknowledgment,
+  persistSiteNoticeAcknowledgment,
+  SiteNoticeDialog,
+  type SiteNoticeMode,
+} from "./components/SiteNoticeDialog";
 import { RankingFilters } from "./components/RankingFilters";
 import { RankingsTable } from "./components/RankingsTable";
 import { ShareLinkButton } from "./components/ShareLinkButton";
@@ -38,6 +43,7 @@ interface AppProps {
 }
 
 const RANKING_PAGE_SIZE = 12;
+const PUBLIC_ORIGIN = "https://scratchoffdata.com";
 
 export default function App({ datasetOverride, gameDetailOverride, gameHistoryOverride }: AppProps) {
   return (
@@ -67,12 +73,66 @@ export default function App({ datasetOverride, gameDetailOverride, gameHistoryOv
 }
 
 function SiteLayout() {
+  const location = useLocation();
+  const [noticeMode, setNoticeMode] = useState<SiteNoticeMode | null>(() =>
+    hasCurrentSiteNoticeAcknowledgment() ? null : "required",
+  );
+  const noticeTriggerRef = useRef<HTMLButtonElement>(null);
+  const restoreNoticeFocus = useRef(false);
+  const closeNotice = useCallback(() => {
+    restoreNoticeFocus.current = true;
+    setNoticeMode(null);
+  }, []);
+  const acknowledgeNotice = useCallback(() => {
+    persistSiteNoticeAcknowledgment();
+    setNoticeMode(null);
+  }, []);
+
+  useLayoutEffect(() => {
+    const background = document.getElementById("site-background");
+    if (!background) return;
+    if (noticeMode) {
+      background.setAttribute("inert", "");
+      background.setAttribute("aria-hidden", "true");
+    } else {
+      background.removeAttribute("inert");
+      background.removeAttribute("aria-hidden");
+      if (restoreNoticeFocus.current) {
+        restoreNoticeFocus.current = false;
+        noticeTriggerRef.current?.focus();
+      }
+    }
+    return () => {
+      background.removeAttribute("inert");
+      background.removeAttribute("aria-hidden");
+    };
+  }, [noticeMode]);
+
+  useEffect(() => {
+    let canonical = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    if (!canonical) {
+      canonical = document.createElement("link");
+      canonical.rel = "canonical";
+      document.head.append(canonical);
+    }
+    canonical.href = `${PUBLIC_ORIGIN}${location.pathname}`;
+  }, [location.pathname]);
+
   return (
     <div className="site-shell">
-      <SiteHeader />
-      <AuthResultNotice />
-      <Outlet />
-      <SiteFooter />
+      <div id="site-background">
+        <SiteHeader noticeTriggerRef={noticeTriggerRef} onOpenNotice={() => setNoticeMode("voluntary")} />
+        <AuthResultNotice />
+        <Outlet />
+        <SiteFooter />
+      </div>
+      {noticeMode ? (
+        <SiteNoticeDialog
+          mode={noticeMode}
+          onAcknowledge={acknowledgeNotice}
+          onClose={closeNotice}
+        />
+      ) : null}
     </div>
   );
 }
@@ -241,7 +301,13 @@ function RankingExperience({
   );
 }
 
-function SiteHeader() {
+function SiteHeader({
+  noticeTriggerRef,
+  onOpenNotice,
+}: {
+  noticeTriggerRef: React.RefObject<HTMLButtonElement | null>;
+  onOpenNotice: () => void;
+}) {
   const location = useLocation();
   const viewState = parseViewState(location.search);
   const { dataset } = useSiteData();
@@ -250,21 +316,27 @@ function SiteHeader() {
     <header className="site-header">
       <div className="site-header__left">
         <div className="site-header__brand-group">
-          <a className="brand" href="/" aria-label="Illinois Lottery Tracker home">
+          <Link className="brand" to="/" aria-label="Scratch-Off Data home">
             <BrandMark />
             <span>
-              <strong>Illinois</strong>
-              <small>Lottery Tracker</small>
+              <strong>Scratch-Off Data</strong>
             </span>
-          </a>
+          </Link>
           <HeaderDataStamp dataset={dataset} />
         </div>
-        <ReadFirstPopover />
+        <button
+          className="read-first__trigger"
+          onClick={onOpenNotice}
+          ref={noticeTriggerRef}
+          type="button"
+        >
+          Important information
+        </button>
       </div>
       <nav aria-label="Primary navigation">
-        <a href={comparisonHref(viewState, "#player-types")}>Player types</a>
-        <a href="/tickets">All games</a>
-        <a href={comparisonHref(viewState, "#methodology")}>Methodology</a>
+        <Link to={comparisonHref(viewState, "#player-types")}>Player types</Link>
+        <Link to="/tickets">All games</Link>
+        <Link to={comparisonHref(viewState, "#methodology")}>Methodology</Link>
         {authState.status === "authenticated" ? (
           <Link to="/account#ticket-history">My ticket history</Link>
         ) : null}
@@ -307,11 +379,11 @@ function Hero({
           selected={viewState.strategy}
           onSelect={onSelectStrategy}
         />
-        <a className="hero-all-tickets" href="/tickets">
+        <Link className="hero-all-tickets" to="/tickets">
           <span>Not sure yet?</span>
           <strong>I can’t decide. Show me every ticket.</strong>
           <small>Browse every current game without choosing a player type.</small>
-        </a>
+        </Link>
       </aside>
     </section>
   );
@@ -427,8 +499,7 @@ function SiteFooter() {
       <div className="brand brand--footer">
         <BrandMark />
         <span>
-          <strong>Illinois</strong>
-          <small>Lottery Tracker</small>
+          <strong>Scratch-Off Data</strong>
         </span>
       </div>
       <p>Independent analysis of public Illinois Lottery data.</p>

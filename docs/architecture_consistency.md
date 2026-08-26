@@ -165,7 +165,7 @@ DATABASE_URL=<production database URL>
 DEV_DATABASE_URL=<development database URL>
 RAW_DATA_DIR=/home/stosh99/illinois-lottery-data/source-captures
 
-PUBLIC_BASE_URL=https://illinoislotterytracker.com
+PUBLIC_BASE_URL=https://scratchoffdata.com
 GOOGLE_OIDC_CLIENT_ID=<verified client ID>
 GOOGLE_OIDC_CLIENT_SECRET=<correct value copied directly from Google>
 AUTH_SECRET_KEYS=<new, unexposed production key>

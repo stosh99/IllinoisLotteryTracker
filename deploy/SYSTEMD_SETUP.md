@@ -81,9 +81,10 @@ Check the loopback and public surfaces:
 curl -f http://127.0.0.1:8765/api/v1/rankings
 curl -f http://127.0.0.1:8766/api/v1/rankings
 curl -f http://127.0.0.1:8766/api/v1/auth/session
-curl -f https://illinoislotterytracker.com/
-curl -f https://illinoislotterytracker.com/api/v1/rankings
-curl -f https://illinoislotterytracker.com/api/v1/auth/session
+curl -f https://scratchoffdata.com/
+curl -f https://scratchoffdata.com/tickets
+curl -f https://scratchoffdata.com/api/v1/rankings
+curl -f https://scratchoffdata.com/api/v1/auth/session
 ```
 
 The auth-session response must report `authenticationAvailable: false` and
@@ -97,28 +98,34 @@ The repository contains:
 ```text
 deploy/nginx/illinoislotterytracker.com.bootstrap.conf
 deploy/nginx/illinoislotterytracker.com.conf
+deploy/nginx/scratchoffdata.com.bootstrap.conf
+deploy/nginx/scratchoffdata.com.conf
 deploy/certbot/reload-nginx
 ```
 
-The bootstrap vhost exists only to obtain the first webroot certificate. Normal
-operation uses the final vhost at
-`/etc/nginx/sites-available/illinoislotterytracker.com`, enabled through an exact
-symlink in `sites-enabled`. It redirects all HTTP and `www` traffic to
-`https://illinoislotterytracker.com` and proxies only the HTTPS apex to
-`127.0.0.1:8766`.
+Normal operation uses `scratchoffdata.com.conf`: HTTP and HTTPS `www` requests
+redirect to `https://scratchoffdata.com`, while the HTTPS apex proxies to the
+unchanged loopback origin at `127.0.0.1:8766`. The old-domain final vhost is
+redirect-only after cutover and deliberately retains its old certificate and ACME
+webroot. See [DOMAIN_MIGRATION.md](DOMAIN_MIGRATION.md) for the ordered bootstrap,
+certificate, cutover, verification, and rollback commands.
 
 Validate the edge and renewal path with:
 
 ```bash
 sudo nginx -t
 sudo systemctl reload nginx
+sudo certbot certificates --cert-name scratchoffdata.com
 sudo certbot certificates --cert-name illinoislotterytracker.com
+sudo certbot renew --cert-name scratchoffdata.com \
+  --dry-run --no-random-sleep-on-renew
 sudo certbot renew --cert-name illinoislotterytracker.com \
   --dry-run --no-random-sleep-on-renew
 systemctl status certbot.timer
 ```
 
-Certbot authenticates through `/var/www/illinoislotterytracker`. Its installed
+Certbot authenticates the new lineage through `/var/www/scratchoffdata` and the
+retained old lineage through `/var/www/illinoislotterytracker`. Its installed
 deploy hook validates Nginx before reloading it so renewed certificates become active
 without a manual restart.
 

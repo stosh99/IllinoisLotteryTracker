@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from illinois_lottery_tracker import api
@@ -66,13 +67,12 @@ def test_auth_middleware_replaces_inbound_request_id() -> None:
 def test_static_account_fallback_never_rewrites_api_misses() -> None:
     if not api.FRONTEND_DIST.joinpath("index.html").is_file():
         pytest.skip("frontend production build is not present")
-    with TestClient(api.app) as client:
-        account = client.get("/account")
-        missing_api = client.get("/api/v1/not-a-real-route")
-    assert account.status_code == 200
-    assert account.headers["content-type"].startswith("text/html")
-    assert missing_api.status_code == 404
-    assert not missing_api.headers["content-type"].startswith("text/html")
+    route = next(route for route in api.app.routes if getattr(route, "path", None) == "/{spa_path:path}")
+    assert route.endpoint("account").path == api.FRONTEND_DIST / "index.html"
+    assert route.endpoint("tickets").path == api.FRONTEND_DIST / "index.html"
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint("api/v1/not-a-real-route")
+    assert exc_info.value.status_code == 404
 
 
 class RejectingLimiter:

@@ -39,11 +39,18 @@ subdomain before public exposure because HSTS includes subdomains.
 ## Google and local secret rotation
 
 Use durable organizational ownership for the production Google Cloud project.
-Register exactly:
+Before public authentication is enabled, set the protected production origin and
+register exactly these Google values in a separate authorized change:
 
 ```text
-https://<approved-owned-origin>/api/v1/auth/google/callback
+PUBLIC_BASE_URL=https://scratchoffdata.com
+Google authorized JavaScript origin: https://scratchoffdata.com
+Google authorized redirect URI: https://scratchoffdata.com/api/v1/auth/google/callback
 ```
+
+The callback path is the route implemented by the application. Keep authentication
+disabled during the domain cutover, and keep the existing host-only `__Host-`
+cookies without adding a cookie `Domain` attribute.
 
 For an ordinary local root-key rotation, prepend a new independent 32-byte
 base64url key to `AUTH_SECRET_KEYS`, deploy, wait at least the configured
