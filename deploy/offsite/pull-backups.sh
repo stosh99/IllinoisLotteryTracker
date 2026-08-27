@@ -5,29 +5,41 @@
 # only here, so a compromised or failed VPS cannot reach, encrypt, or delete
 # these files. Each run re-syncs anything missing, so a machine that was
 # powered off simply catches up on its next run.
+#
+# When ILT_BACKUP_GPG_RECIPIENT names a key, each dump is encrypted to that
+# public key and the plaintext is removed. Only the public key is needed here,
+# so the scheduled job never holds the ability to decrypt. Manifests stay in
+# plaintext on purpose: they carry only checksums, row counts, and timestamps,
+# and the backup monitoring reads them.
 set -euo pipefail
 
 REMOTE="${ILT_BACKUP_REMOTE:-stosh99@66.220.29.98}"
 REMOTE_DIR="${ILT_BACKUP_REMOTE_DIR:-/home/stosh99/illinois-lottery-data/backups}"
 LOCAL_DIR="${ILT_BACKUP_LOCAL_DIR:-$HOME/backups/scratchoffdata}"
+RECIPIENT="${ILT_BACKUP_GPG_RECIPIENT:-}"
 
 mkdir -p "$LOCAL_DIR"
 
-# --ignore-existing keeps already-pulled dumps immutable here even if the
-# remote copy is pruned or altered later.
-rsync --archive --ignore-existing --chmod=F600 --timeout=120 \
-  -e "ssh -o BatchMode=yes -o ConnectTimeout=15" \
-  "${REMOTE}:${REMOTE_DIR}/" "${LOCAL_DIR}/"
-
-newest=$(ls -1t "${LOCAL_DIR}"/*.dump 2>/dev/null | head -1 || true)
-if [ -z "$newest" ]; then
-  echo "$(date --iso-8601=seconds) ERROR: no dumps present in ${LOCAL_DIR}" >&2
+if [ -n "$RECIPIENT" ] && ! gpg --list-keys "$RECIPIENT" >/dev/null 2>&1; then
+  echo "$(date --iso-8601=seconds) ERROR: no public key for '$RECIPIENT'" >&2
   exit 1
 fi
 
-# Verify the newest local copy against its manifest checksum, so a truncated
-# transfer is caught here rather than during a restore emergency.
-if ! python3 - "$newest" <<'PYTHON'
+# A dump already held in encrypted form must not be pulled again; without this
+# every run would re-download the plaintext that encryption just removed.
+exclude_args=()
+for encrypted in "$LOCAL_DIR"/*.dump.gpg; do
+  [ -e "$encrypted" ] || continue
+  exclude_args+=(--exclude "$(basename "${encrypted%.gpg}")")
+done
+
+rsync --archive --ignore-existing --chmod=F600 --timeout=120 \
+  "${exclude_args[@]}" \
+  -e "ssh -o BatchMode=yes -o ConnectTimeout=15" \
+  "${REMOTE}:${REMOTE_DIR}/" "${LOCAL_DIR}/"
+
+verify_against_manifest() {
+  python3 - "$1" <<'PYTHON'
 import hashlib
 import json
 import sys
@@ -44,10 +56,39 @@ if digest.hexdigest() != manifest["dump_sha256"]:
     raise SystemExit(1)
 print(f"{dump.name} verified ({manifest['dump_bytes']} bytes, {manifest['migration_revision']})")
 PYTHON
-then
-  echo "$(date --iso-8601=seconds) ERROR: checksum verification failed" >&2
+}
+
+pulled=0
+encrypted_now=0
+for dump in "$LOCAL_DIR"/*.dump; do
+  [ -e "$dump" ] || continue
+  pulled=$((pulled + 1))
+  # Verify the transfer before encrypting, so a truncated copy is caught here
+  # rather than during a restore emergency.
+  if ! verify_against_manifest "$dump"; then
+    echo "$(date --iso-8601=seconds) ERROR: checksum verification failed for $(basename "$dump")" >&2
+    exit 1
+  fi
+  [ -n "$RECIPIENT" ] || continue
+
+  target="${dump}.gpg"
+  gpg --batch --yes --trust-model always --recipient "$RECIPIENT" \
+    --output "$target" --encrypt "$dump"
+  if [ ! -s "$target" ]; then
+    echo "$(date --iso-8601=seconds) ERROR: encryption produced no output for $(basename "$dump")" >&2
+    rm -f "$target"
+    exit 1
+  fi
+  chmod 600 "$target"
+  rm -f "$dump"
+  encrypted_now=$((encrypted_now + 1))
+done
+
+held=$(find "$LOCAL_DIR" -maxdepth 1 \( -name '*.dump' -o -name '*.dump.gpg' \) | wc -l)
+if [ "$held" -eq 0 ]; then
+  echo "$(date --iso-8601=seconds) ERROR: no backups present in ${LOCAL_DIR}" >&2
   exit 1
 fi
-
-count=$(ls -1 "${LOCAL_DIR}"/*.dump 2>/dev/null | wc -l)
-echo "$(date --iso-8601=seconds) OK: ${count} dump(s) held in ${LOCAL_DIR}"
+state=$([ -n "$RECIPIENT" ] && echo "encrypted to ${RECIPIENT}" || echo "UNENCRYPTED")
+echo "$(date --iso-8601=seconds) OK: ${held} backup(s) held in ${LOCAL_DIR} (${state}); \
+${pulled} verified this run, ${encrypted_now} newly encrypted"

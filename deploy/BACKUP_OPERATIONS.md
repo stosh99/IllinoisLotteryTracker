@@ -32,6 +32,59 @@ destroyed VPS cannot reach, encrypt, or delete the offsite copies. `rsync
 remote copy is later pruned, and each run re-syncs whatever is missing, so a
 workstation that was powered off catches up on its next run.
 
+## Encryption of the offsite copies
+
+Set `ILT_BACKUP_GPG_RECIPIENT` and the pull encrypts each dump to that public
+key, then removes the plaintext. Only the **public** key is needed here, so the
+scheduled job never holds the ability to decrypt anything. Manifests stay in
+plaintext deliberately: they carry only checksums, row counts, and timestamps,
+and the monitoring above reads them.
+
+If the variable names a key that is not in the keyring, the run fails rather
+than silently keeping plaintext.
+
+### One-time key setup
+
+Generate a key dedicated to backups. Choose a strong passphrase and store it in
+the password manager as you create it:
+
+```bash
+gpg --quick-generate-key 'Scratch-Off Data backups <backups@scratchoffdata.local>' \
+  default default never
+gpg --list-keys backups@scratchoffdata.local
+```
+
+Then put the recovery material in the password manager, because a lost private
+key makes every encrypted backup permanently unreadable:
+
+```bash
+gpg --armor --export-secret-keys backups@scratchoffdata.local
+```
+
+Store that armored block and its passphrase as a single secure note. The
+public half stays in the local keyring for the nightly job.
+
+Activate it by adding the recipient to the workstation cron entries:
+
+```cron
+ILT_BACKUP_GPG_RECIPIENT=backups@scratchoffdata.local
+30 8 * * * /path/to/deploy/offsite/pull-backups.sh >> ~/backups/logs/pull-backups.log 2>&1
+```
+
+Dumps pulled before the key existed stay in plaintext; encrypt them once with
+`gpg --encrypt --recipient backups@scratchoffdata.local <file>.dump` and delete
+the plaintext, or simply delete them and let the next pull fetch fresh copies.
+
+### Restoring an encrypted copy
+
+```bash
+gpg --decrypt illinois_lottery_<stamp>.dump.gpg > illinois_lottery_<stamp>.dump
+sha256sum illinois_lottery_<stamp>.dump   # compare with dump_sha256 in the manifest
+```
+
+Verified 2026-08-27 with a throwaway key: a decrypted dump matched its manifest
+checksum byte for byte and `pg_restore --list` read all 21 tables.
+
 ## Monitoring
 
 `analytics/status.py` scans the backup directory's `*.manifest.json` files:
@@ -111,23 +164,8 @@ sudo systemctl enable --now illinois-lottery-backup.timer illinois-lottery-resto
 
 ## Not yet covered
 
-- **At-rest encryption of the offsite copies — deliberately deferred
-  (decided 2026-08-27).** Required by the authentication release gate, and not
-  yet urgent because the database holds no user rows: every byte in these
-  backups is public lottery data.
-
-  It is deferred because there is nowhere safe to keep the key. The workstation
-  holding the offsite copies runs an unencrypted ext4 filesystem and there is no
-  password manager, so any key or passphrase would sit on the same disk as the
-  backups it protects — buying almost no confidentiality while creating a real
-  new failure mode, since losing that machine would make every encrypted backup
-  permanently unreadable.
-
-  **Prerequisite: a secrets store** (password manager or equivalent). The same
-  prerequisite blocks the separate all-projects `.env` backup effort, so one
-  decision unblocks both. Once it exists, encrypt with a keypair so the nightly
-  pull needs only the public key, and keep the private key both passphrase-
-  protected locally and copied into the secrets store.
+- **Backup failure alerting.** The morning watchdog checks collection freshness
+  only; extending it to backup age is straightforward once outbound SMTP works.
 - **Secrets — deliberately out of scope here (decided 2026-08-27).** The
   production `.env` (Google OAuth client secret, `AUTH_SECRET_KEYS`) exists in
   exactly one place, and losing it means re-issuing OAuth credentials and
