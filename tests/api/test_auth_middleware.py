@@ -72,11 +72,13 @@ def test_static_account_fallback_never_rewrites_api_misses() -> None:
         for route in api.app.routes
         if getattr(route, "path", None) == "/{spa_path:path}"
     )
-    assert route.endpoint("account").path == api.FRONTEND_DIST / "index.html"
-    assert route.endpoint("tickets").path == api.FRONTEND_DIST / "index.html"
+    for reviewed in ("account", "tickets", "privacy", "terms", "contact"):
+        assert route.endpoint(reviewed).path == api.FRONTEND_DIST / "index.html"
     with pytest.raises(HTTPException) as exc_info:
         route.endpoint("api/v1/not-a-real-route")
     assert exc_info.value.status_code == 404
+    with pytest.raises(HTTPException):
+        route.endpoint("privacy/extra")
 
 
 class RejectingLimiter:

@@ -27,7 +27,10 @@ import { getStrategy } from "./lib/strategies";
 import { comparisonHref, DEFAULT_VIEW_STATE, parseViewState } from "./lib/urlState";
 import { AccountPage } from "./pages/AccountPage";
 import { AllTicketsPage } from "./pages/AllTicketsPage";
+import { ContactPage } from "./pages/ContactPage";
 import { GameDetailPage } from "./pages/GameDetailPage";
+import { PrivacyPage } from "./pages/PrivacyPage";
+import { TermsPage } from "./pages/TermsPage";
 import type { GameDetail } from "./types/gameDetails";
 import type { GameHistory } from "./types/gameHistory";
 import type {
@@ -64,6 +67,9 @@ export default function App({ datasetOverride, gameDetailOverride, gameHistoryOv
               />
               <Route path="account" element={<AccountPage />} />
               <Route path="tickets" element={<AllTicketsPage />} />
+              <Route path="privacy" element={<PrivacyPage />} />
+              <Route path="terms" element={<TermsPage />} />
+              <Route path="contact" element={<ContactPage />} />
             </Route>
           </Routes>
         </SiteDataProvider>
@@ -504,6 +510,14 @@ function SiteFooter() {
       </div>
       <p>Independent analysis of public Illinois Lottery data.</p>
       <p>Independent tool · not affiliated with the Illinois Lottery.</p>
+      <nav className="site-footer__links" aria-label="Site information">
+        <Link to="/privacy">Privacy</Link>
+        <Link to="/terms">Terms</Link>
+        <Link to="/contact">Contact</Link>
+      </nav>
+      <p className="site-footer__play">
+        Must be 18 or older to play. Problem-gambling help: 1-800-GAMBLER.
+      </p>
     </footer>
   );
 }

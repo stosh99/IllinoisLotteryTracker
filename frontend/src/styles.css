@@ -3372,6 +3372,113 @@ dd {
   font-size: 0.7rem;
 }
 
+.site-footer__links,
+.site-footer__play {
+  grid-column: 1 / -1;
+}
+
+.site-footer__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+}
+
+.site-footer__links a {
+  color: #c8d8e5;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-decoration: none;
+  border-bottom: 1px solid rgb(200 216 229 / 45%);
+}
+
+.site-footer__links a:hover {
+  color: white;
+  border-bottom-color: white;
+}
+
+.site-footer__play {
+  color: #8fa3b3;
+}
+
+.legal-page {
+  max-width: min(72ch, calc(100vw - 3rem));
+  padding: 3rem 0 4rem;
+  margin: 0 auto;
+}
+
+.legal-page h1 {
+  margin: 0.35rem 0 0;
+  color: var(--navy-deep);
+  font-family: Georgia, Cambria, "Times New Roman", serif;
+  font-size: clamp(2rem, 5vw, 3rem);
+  line-height: 1.05;
+}
+
+.legal-page__lede {
+  margin: 1rem 0 0;
+  color: var(--ink);
+  font-size: 1.05rem;
+}
+
+.legal-page__updated {
+  margin: 1.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.legal-page__body {
+  padding-top: 1.5rem;
+  margin-top: 2rem;
+  border-top: 1px solid var(--line);
+}
+
+.legal-page__body h2 {
+  margin: 2.25rem 0 0.6rem;
+  color: var(--navy-deep);
+  font-family: Georgia, Cambria, "Times New Roman", serif;
+  font-size: 1.4rem;
+}
+
+.legal-page__body h2:first-child {
+  margin-top: 0;
+}
+
+.legal-page__body p,
+.legal-page__body li {
+  margin: 0 0 0.9rem;
+  color: var(--ink);
+  line-height: 1.65;
+}
+
+.legal-page__body ul {
+  padding-left: 1.2rem;
+  margin: 0 0 0.9rem;
+}
+
+.legal-page__body a {
+  color: var(--blue);
+}
+
+.legal-page__body code {
+  padding: 0.1rem 0.3rem;
+  font-size: 0.9em;
+  background: var(--paper-deep);
+  border-radius: 0.2rem;
+}
+
+.legal-page__address {
+  padding: 1rem 1.25rem;
+  margin: 0 0 1.5rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--blue);
+}
+
 .auth-control--status {
   justify-self: end;
   color: #c8d8e5;

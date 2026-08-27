@@ -231,7 +231,14 @@ if FRONTEND_DIST.joinpath("index.html").is_file():
     @app.get("/{spa_path:path}", include_in_schema=False)
     def serve_frontend(spa_path: str) -> FileResponse:
         """Serve only reviewed SPA routes; never rewrite an API miss to HTML."""
-        if spa_path not in {"", "account", "tickets"} and re.fullmatch(
+        if spa_path not in {
+            "",
+            "account",
+            "tickets",
+            "privacy",
+            "terms",
+            "contact",
+        } and re.fullmatch(
             r"games/[1-9][0-9]*", spa_path
         ) is None:
             raise HTTPException(status_code=404)
