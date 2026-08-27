@@ -63,14 +63,73 @@ revocation only if broader compromise is suspected.
 Never place either secret in command arguments, systemd units, frontend inputs,
 logs, backup manifests, or incident tickets.
 
+## Enablement procedure
+
+Do not start this until `docs/authentication_blueprint/RELEASE_GATE_STATUS.md`
+records every prerequisite as passed. Enabling is one edit and one restart, and
+is reversible by the same route.
+
+1. **Confirm the retention timer is installed and enabled** (see the next
+   section). It enforces the 24-hour attempt, 30-day inactive-session, and
+   90-day event retention that the published privacy notice promises. Enabling
+   authentication without it would make the site break a stated commitment.
+
+2. **Generate a session signing key** — 32 random bytes as unpadded base64url,
+   which is the 43 characters the configuration loader requires:
+
+   ```bash
+   python3 -c 'import base64,secrets;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("="))'
+   ```
+
+   Rotation appends a second key ahead of the first; see the rotation section.
+
+3. **Edit the production `.env`** (mode `0600`, never committed) so that all of
+   these are true in the same edit:
+
+   ```text
+   AUTH_ENABLED=true
+   PUBLIC_BASE_URL=https://scratchoffdata.com
+   GOOGLE_OIDC_CLIENT_ID=<production client>.apps.googleusercontent.com
+   GOOGLE_OIDC_CLIENT_SECRET=<production secret>
+   AUTH_SECRET_KEYS=<the 43-character key from step 2>
+   AUTH_TRUSTED_PROXY_HOPS=127.0.0.1/32
+   ```
+
+   `PUBLIC_BASE_URL` must match the Google client exactly, because the callback
+   is derived from it. `AUTH_TRUSTED_PROXY_HOPS` must name the loopback hop:
+   left at `none`, every request behind nginx appears to come from `127.0.0.1`
+   and the in-process limiter would place all users in a single bucket.
+
+4. **Confirm one API worker.** `illinois-lottery-prod-api.service` must not pass
+   `--workers`; multiple workers multiply the in-process limits.
+
+5. **Restart and verify** the service reports authentication as available:
+
+   ```bash
+   sudo systemctl restart illinois-lottery-prod-api
+   curl -fsS https://scratchoffdata.com/api/v1/auth/session
+   ```
+
+6. **Run the real-Google smoke test** on the production client: login, session
+   refresh, logout, session revocation, same-identity reauthentication,
+   different-identity rejection, and account deletion. Record the result in the
+   release gate status.
+
+**Rollback.** Set `AUTH_ENABLED=false` and restart. Existing sessions stop being
+accepted immediately because every authenticated route fails closed. If the
+reason for rolling back is a suspected credential exposure, also revoke sessions
+and rotate as described under incidents below.
+
 ## Daily retention
 
-Install the dedicated timer separately from the working nightly data pipeline:
+The timer is a system unit, matching the other services on this host:
 
 ```bash
-cp deploy/systemd/illinois-lottery-auth-maintenance.* ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now illinois-lottery-auth-maintenance.timer
+sudo install -o root -g root -m 0644 \
+  deploy/systemd/illinois-lottery-auth-maintenance.service \
+  deploy/systemd/illinois-lottery-auth-maintenance.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now illinois-lottery-auth-maintenance.timer
 ```
 
 Preview or run it explicitly:

@@ -4,6 +4,7 @@ After=postgresql.service
 
 [Service]
 Type=oneshot
+User=stosh99
 WorkingDirectory=/home/stosh99/projects/IllinoisLotteryTracker
 EnvironmentFile=/home/stosh99/projects/IllinoisLotteryTracker/.env
 ExecStart=/home/stosh99/projects/IllinoisLotteryTracker/.venv/bin/python /home/stosh99/projects/IllinoisLotteryTracker/scripts/maintain_authentication.py --apply

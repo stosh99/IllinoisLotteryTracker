@@ -111,9 +111,23 @@ sudo systemctl enable --now illinois-lottery-backup.timer illinois-lottery-resto
 
 ## Not yet covered
 
-- **At-rest encryption of the offsite copies.** Required by the authentication
-  release gate; not yet urgent because the database holds no user rows. Add it,
-  with its key handling, before authentication is enabled.
+- **At-rest encryption of the offsite copies — deliberately deferred
+  (decided 2026-08-27).** Required by the authentication release gate, and not
+  yet urgent because the database holds no user rows: every byte in these
+  backups is public lottery data.
+
+  It is deferred because there is nowhere safe to keep the key. The workstation
+  holding the offsite copies runs an unencrypted ext4 filesystem and there is no
+  password manager, so any key or passphrase would sit on the same disk as the
+  backups it protects — buying almost no confidentiality while creating a real
+  new failure mode, since losing that machine would make every encrypted backup
+  permanently unreadable.
+
+  **Prerequisite: a secrets store** (password manager or equivalent). The same
+  prerequisite blocks the separate all-projects `.env` backup effort, so one
+  decision unblocks both. Once it exists, encrypt with a keypair so the nightly
+  pull needs only the public key, and keep the private key both passphrase-
+  protected locally and copied into the secrets store.
 - **Secrets — deliberately out of scope here (decided 2026-08-27).** The
   production `.env` (Google OAuth client secret, `AUTH_SECRET_KEYS`) exists in
   exactly one place, and losing it means re-issuing OAuth credentials and
