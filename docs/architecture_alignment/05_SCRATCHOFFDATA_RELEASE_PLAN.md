@@ -1,6 +1,10 @@
 # Scratch-Off Data production release plan
 
-**Written 2026-08-27.** This is the reconciled, execution-ready plan for taking
+**Written 2026-08-27. Executed 2026-08-27 — Phases 0–3 complete; Phase 4
+(authentication) remains outstanding.** See the execution record at the end of
+this document for what actually happened.
+
+This is the reconciled, execution-ready plan for taking
 `main` at `8346888` ("Fix mobile header CI regression") to production and moving
 the public edge to `scratchoffdata.com`. It merges three existing documents and
 resolves their overlaps; it does not replace them:
@@ -148,6 +152,42 @@ Explicitly **out of scope** for this release. When undertaken:
    `deploy/AUTHENTICATION_OPERATIONS.md`.
 3. Only here do Google sign-in, account functions, and ticket history become
    verifiable in production.
+
+## Execution record — 2026-08-27
+
+Phases 0–3 executed in one supervised session, each phase verified before the
+next began. Authentication was never enabled and remains off.
+
+| Phase | Outcome |
+|---|---|
+| 0 Preflight | All green: CI success on `32d266b`; DNS apex+www → `66.220.29.98`; overnight fanout `development:ok, production:ok`; VPS tree clean at `74614ec`; no collection running |
+| 1 New-domain edge | Webroot + bootstrap vhost installed; ACME probe returned the exact body on both hostnames; certificate issued for `scratchoffdata.com` + `www` (**expires 2026-11-25**); final vhost installed. All three redirect cases 301 with path and query preserved |
+| 2 Application release | Backup taken (9.7 MB, checksum verified, `pg_restore` read 20 tables); branch switched `topology-cutover` → `main` at `32d266b`; **`0012` applied — prod now at head**, table empty with both indexes; frontend rebuilt; service restarted, still loopback-only |
+| 3 Old-domain redirects | Pre-cutover vhost saved as `illinoislotterytracker.com.pre-scratchoffdata`; redirect-only config installed; **all four old-origin cases 301** to `https://scratchoffdata.com`; renewal dry-runs succeeded for **both** lineages; deploy hook matches `deploy/certbot/reload-nginx` |
+
+Post-release verification on `https://scratchoffdata.com`: `/`, `/tickets`,
+`/games/{id}`, and `/api/v1/rankings` all 200; rankings `AVAILABLE` with the
+2026-08-27 04:00 collection and 318 rows; `/api/v1/auth/session` reports
+**authentication unavailable**; anonymous `/api/v1/ticket-entries` fail-closes
+with 503; canonical tag and `Scratch-Off Data` title correct; site notice
+presents once per origin and does not reappear after acknowledgment.
+
+Two deliberate deviations, both verified first rather than assumed:
+
+- **Phase 1 config source.** The VPS checkout was still on `topology-cutover`,
+  which does not contain the new nginx configs. Rather than switch branches
+  early and blur the edge change into the application deploy, the configs were
+  extracted with `git show origin/main:…` after a `git fetch` (working tree
+  untouched) and their SHA-256 checksums compared against the reviewed files.
+- **Phase 2 install steps skipped.** `pyproject.toml`, `package.json`, and
+  `package-lock.json` are byte-identical between `74614ec` and `32d266b`, so
+  `pip install -e .` and `npm ci` were omitted; `npm ci` in particular would
+  have deleted and reinstalled identical `node_modules` on a production host
+  for no benefit. `npm run build` alone was sufficient.
+
+Rollback assets retained: `origin/topology-cutover` at `74614ec`, the verified
+pre-`0012` dump under `~/illinois-lottery-data/manual-backups/pre-0012/`, and
+`/etc/nginx/sites-available/illinoislotterytracker.com.pre-scratchoffdata`.
 
 ## Post-release follow-ups (tracked, not blocking)
 
