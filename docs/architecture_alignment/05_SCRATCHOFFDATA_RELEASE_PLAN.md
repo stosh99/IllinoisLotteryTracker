@@ -191,8 +191,12 @@ pre-`0012` dump under `~/illinois-lottery-data/manual-backups/pre-0012/`, and
 
 ## Post-release follow-ups (tracked, not blocking)
 
-- **P0:** scheduled production backups + restore verification (nightly status
-  currently reports `BACKUP_STALE_OR_UNKNOWN` / `RESTORE_VERIFICATION_STALE_OR_UNKNOWN`).
+- ~~**P0:** scheduled production backups + restore verification.~~ **Done
+  2026-08-27** — nightly backup with 7/4/12 retention, weekly restore
+  verification, and a workstation-side offsite pull. See
+  `deploy/BACKUP_OPERATIONS.md`. Remaining within that area: at-rest encryption
+  of the offsite copies and a protected copy of the production `.env`, both of
+  which belong to the Phase 4 authentication gate.
 - Watchdog email delivery (ServerOptima outbound-SMTP unblock ticket, or switch
   the send step to an HTTPS email API).
 - Stale doc claims that ticket tracking "is not built yet" (`README.md`,
