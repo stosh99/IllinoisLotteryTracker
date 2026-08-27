@@ -1,0 +1,25 @@
+[Unit]
+Description=Illinois Lottery Tracker — weekly restore verification of the newest backup
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=stosh99
+WorkingDirectory=/home/stosh99/projects/IllinoisLotteryTracker
+# The verifier restores into a throwaway database, so it must not inherit the
+# production identity guard. An empty EXPECTED_DATABASE_NAME disables the check
+# (config reads it as `or None`), and a non-production APP_ENV keeps that legal.
+# DATABASE_URL supplies only host and credentials via local socket peer auth;
+# the disposable database is named by --target-database.
+Environment=DATABASE_URL=postgresql+psycopg:///postgres
+Environment=EXPECTED_DATABASE_NAME=
+Environment=APP_ENV=test
+ExecStart=/bin/sh -c 'DUMP="$$(ls -1t /home/stosh99/illinois-lottery-data/backups/*.dump 2>/dev/null | head -1)"; \
+    if [ -z "$$DUMP" ]; then echo "no backup available to verify" >&2; exit 1; fi; \
+    exec /home/stosh99/projects/IllinoisLotteryTracker/.venv/bin/python \
+    /home/stosh99/projects/IllinoisLotteryTracker/scripts/verify_database_restore.py \
+    --dump "$$DUMP" --target-database illinois_lottery_restore_verify_weekly'
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=illinois-lottery-restore-verify

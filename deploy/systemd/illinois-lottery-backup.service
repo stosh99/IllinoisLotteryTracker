@@ -1,0 +1,18 @@
+[Unit]
+Description=Illinois Lottery Tracker — nightly database backup and retention prune
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=stosh99
+WorkingDirectory=/home/stosh99/projects/IllinoisLotteryTracker
+ExecStart=/home/stosh99/projects/IllinoisLotteryTracker/.venv/bin/python \
+    /home/stosh99/projects/IllinoisLotteryTracker/scripts/backup_database.py \
+    --target-dir /home/stosh99/illinois-lottery-data/backups
+ExecStart=/home/stosh99/projects/IllinoisLotteryTracker/.venv/bin/python \
+    /home/stosh99/projects/IllinoisLotteryTracker/scripts/prune_backups.py \
+    --backup-dir /home/stosh99/illinois-lottery-data/backups
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=illinois-lottery-backup
