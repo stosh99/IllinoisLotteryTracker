@@ -114,9 +114,16 @@ sudo systemctl enable --now illinois-lottery-backup.timer illinois-lottery-resto
 - **At-rest encryption of the offsite copies.** Required by the authentication
   release gate; not yet urgent because the database holds no user rows. Add it,
   with its key handling, before authentication is enabled.
-- **Secrets.** The production `.env` (Google OAuth client secret,
-  `AUTH_SECRET_KEYS`) exists in exactly one place. Losing it means re-issuing
-  OAuth credentials and invalidating every session. It needs its own encrypted
-  copy — a password-manager entry is sufficient for a file this small.
+- **Secrets — deliberately out of scope here (decided 2026-08-27).** The
+  production `.env` (Google OAuth client secret, `AUTH_SECRET_KEYS`) exists in
+  exactly one place, and losing it means re-issuing OAuth credentials and
+  invalidating every session. Rather than solve that for this project alone, it
+  is being tracked as a **separate cross-project effort**: a protected backup of
+  every `.env` across all projects and machines, stored on Google Drive.
+  Whatever that effort produces must encrypt client-side before upload, since
+  Drive is third-party storage and would otherwise become a single point of
+  compromise for every project at once. Note the dependency: the authentication
+  release gate requires a protected secret backup, so Phase 4 needs either that
+  project or an interim measure for this one `.env`.
 - **Backup failure alerting.** The morning watchdog checks collection freshness
   only; extending it to backup age is straightforward once outbound SMTP works.
