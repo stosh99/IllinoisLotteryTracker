@@ -4,7 +4,7 @@ Recorded: 2026-08-10
 
 Code status: complete through AU-09
 
-Public authentication status: disabled
+Public authentication status: disabled (superseded — see the 2026-08-28 update)
 
 ## Automated evidence
 
@@ -46,8 +46,8 @@ Four of the six external prerequisites are now satisfied. Alembic head is
 | Published homepage, privacy notice, terms, contact | **Passed.** `/privacy`, `/terms`, `/contact` are live and linked from the footer. The privacy notice covers the verified email and Google identifier, sessions, in-memory source pseudonyms, 90-day auth events, and the backup lifecycle. |
 | TLS proxy limits, clean callback 303, log omission | **Passed and independently tested.** `deploy/nginx/scratchoffdata.com.conf` implements the blueprint's per-source table. Verified live: login start refuses with `429` plus `Retry-After: 60` after burst; a throttled callback returns `303` to `/?authResult=failed` with `no-store` and no code or state; the access log records `$uri` only — a request with `code=`/`state=` produced zero matches in the log — and no cookie data is logged. |
 | Documented encrypted backup target | **Passed.** The 7-daily/4-weekly/12-monthly lifecycle, weekly restore verification, and an offsite pull are implemented (`deploy/BACKUP_OPERATIONS.md`). Offsite copies are encrypted to a public key so the scheduled job never holds decryption capability; the passphrase-protected private key is held locally with a recovery copy in a password manager. Verified end to end on 2026-08-27: a pulled dump encrypted to the intended subkey, decrypted with the operator's passphrase, and matched its manifest checksum byte for byte. |
-| Separate production Google web client and exact callback | **Outstanding, and currently failing.** Verified 2026-08-28: the production `.env` holds the *same* client ID and secret as the development workstation, both in Google Cloud project `658067325122`. Nothing is exposed while `AUTH_ENABLED=false`, but the enablement edit must replace these outright rather than add to them. A separate production client is needed with origin `https://scratchoffdata.com` and redirect `https://scratchoffdata.com/api/v1/auth/google/callback`, requesting only `openid email`, published rather than left in Testing. Steps are in `deploy/AUTHENTICATION_OPERATIONS.md`. |
-| Real-Google smoke test | **Outstanding.** Requires the production client first. |
+| Separate production Google web client and exact callback | **Passed 2026-08-28.** A dedicated production client now lives in its own Google Cloud project (`367561791883`), published rather than in Testing, requesting only `openid email`, with origin `https://scratchoffdata.com` and redirect `https://scratchoffdata.com/api/v1/auth/google/callback`. Confirmed distinct from development in client id, secret, and project. The earlier shared-client condition is resolved. |
+| Real-Google smoke test | **Passed 2026-08-28.** Operator completed sign-in, session persistence, ticket entry, sign-out, session revocation, same-identity reauthentication, and account deletion against the production client. Server-side confirmation: `auth_events` recorded login_started, login_succeeded, logout_all, and account_deleted; the account present afterwards was created after the deletion timestamp, with zero orphaned identities or sessions. |
 | Protected production secret delivery | **Outstanding.** Deferred to a separate cross-project effort covering every `.env`. |
 
 Two production environment values must change in the same edit that sets
@@ -60,7 +60,15 @@ Two production environment values must change in the same edit that sets
   request appear to originate from `127.0.0.1`, so the in-process limiter would
   place all users in a single bucket. It must name the explicit loopback hop.
 
-These are release blockers, not code-completion blockers. Keep
-`AUTH_ENABLED=false` until every item is recorded as passed. Do not infer Google
+## Authentication enabled — 2026-08-28
+
+Every prerequisite above is recorded as passed, and `AUTH_ENABLED=true` is live
+on `https://scratchoffdata.com`. `PUBLIC_BASE_URL` names the new origin and
+`AUTH_TRUSTED_PROXY_HOPS` is `127.0.0.1/32`, so the limiter sees real client
+addresses rather than the proxy. The session signing key is distinct from
+development, `.env` remains mode `0600`, and the service runs a single worker.
+
+Rollback remains one edit and one restart: set `AUTH_ENABLED=false` and restart
+`illinois-lottery-prod-api`; every authenticated route then fails closed. Do not infer Google
 age, residence, password, passkey, or MFA verification from this login or
 recent-account-selection flow.
