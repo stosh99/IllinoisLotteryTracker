@@ -63,6 +63,41 @@ revocation only if broader compromise is suspected.
 Never place either secret in command arguments, systemd units, frontend inputs,
 logs, backup manifests, or incident tickets.
 
+## Creating the production Google client
+
+Development and production must not share a client. Sharing one puts the
+production secret on a development workstation, makes rotation after a
+development incident an immediate production outage, and is impossible to
+publish, because a client cannot be both a testing sandbox and a released app.
+
+**The console navigation changed in 2025–2026.** There is no longer an "OAuth
+consent screen" menu item; it is now the **Google Auth Platform** at
+`https://console.cloud.google.com/auth/overview` (menu: APIs & Services →
+Google Auth Platform), split into four sub-pages. Verify the correct project is
+selected first, and prefer a project separate from development.
+
+| Sub-page | Setting |
+|---|---|
+| Branding | App name `Scratch-Off Data`; user support email; privacy `https://scratchoffdata.com/privacy`; terms `https://scratchoffdata.com/terms`; authorized domain `scratchoffdata.com` |
+| Audience | User type **External**; move publishing status from *Testing* to **In production** |
+| Data Access | Only `openid` and `email`. These are non-sensitive scopes, which avoids Google's full verification review |
+| Clients | **Web application**; JavaScript origin `https://scratchoffdata.com`; redirect URI `https://scratchoffdata.com/api/v1/auth/google/callback` |
+
+The redirect URI must match exactly, with no trailing slash: the application
+derives it from `PUBLIC_BASE_URL`, so any difference fails every login with
+`redirect_uri_mismatch`.
+
+Leaving the app in *Testing* is the usual reason sign-in works for the operator
+and nobody else — only listed test users can authenticate, and refresh tokens
+expire after seven days.
+
+**User support email** is constrained by Google to the signed-in account's own
+address or a Google Group it manages, and it is shown publicly on the consent
+screen. A domain mailbox such as `privacy@scratchoffdata.com` qualifies only
+once it is registered as a Google account; otherwise the choice is a personal
+address, which then becomes public. **Developer contact information** is a
+separate, internal-only field with no such restriction.
+
 ## Enablement procedure
 
 Do not start this until `docs/authentication_blueprint/RELEASE_GATE_STATUS.md`
