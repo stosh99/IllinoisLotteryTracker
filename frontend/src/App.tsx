@@ -18,6 +18,8 @@ import { ShareLinkButton } from "./components/ShareLinkButton";
 import { SignInControl } from "./components/SignInControl";
 import { StrategyPicker } from "./components/StrategyPicker";
 import { TicketFinder } from "./components/TicketFinder";
+import { TicketHistoryHint } from "./components/TicketHistoryHint";
+import { TicketHistoryPromo } from "./components/TicketHistoryPromo";
 import { UnavailableState } from "./components/UnavailableState";
 import { AuthSessionProvider } from "./context/AuthSessionProvider";
 import { SiteDataProvider, useSiteData } from "./context/SiteDataProvider";
@@ -349,6 +351,7 @@ function SiteHeader({
       </nav>
       <div className="site-header__account">
         <SignInControl />
+        <TicketHistoryHint />
       </div>
       <TicketFinder dataset={dataset} />
     </header>
@@ -390,6 +393,7 @@ function Hero({
           <strong>I can’t decide. Show me every ticket.</strong>
           <small>Browse every current game without choosing a player type.</small>
         </Link>
+        <TicketHistoryPromo />
       </aside>
     </section>
   );

@@ -229,9 +229,70 @@ dd {
 }
 
 .site-header__account {
+  position: relative;
   display: flex;
   align-items: center;
   justify-self: end;
+}
+
+.ticket-history-hint {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 14px);
+  right: 0;
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  padding: 0.5rem 0.4rem 0.5rem 0.85rem;
+  color: var(--navy-deep);
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 0.3rem;
+  box-shadow: 0 4px 14px rgb(6 21 34 / 30%);
+}
+
+.ticket-history-hint::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  right: 2.2rem;
+  width: 10px;
+  height: 10px;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+  transform: rotate(45deg);
+}
+
+.ticket-history-hint p {
+  margin: 0;
+}
+
+.ticket-history-hint button {
+  padding: 0 0.4rem;
+  color: var(--muted);
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.ticket-history-hint button:hover {
+  color: var(--navy-deep);
+}
+
+@media (max-width: 860px) {
+  .ticket-history-hint {
+    display: none;
+  }
+}
+
+.hero-track-plays span {
+  color: var(--blue-light);
 }
 
 .ticket-finder {
