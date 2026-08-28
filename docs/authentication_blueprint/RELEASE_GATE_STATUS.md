@@ -50,15 +50,15 @@ Four of the six external prerequisites are now satisfied. Alembic head is
 | Real-Google smoke test | **Passed 2026-08-28.** Operator completed sign-in, session persistence, ticket entry, sign-out, session revocation, same-identity reauthentication, and account deletion against the production client. Server-side confirmation: `auth_events` recorded login_started, login_succeeded, logout_all, and account_deleted; the account present afterwards was created after the deletion timestamp, with zero orphaned identities or sessions. |
 | Protected production secret delivery | **Outstanding.** Deferred to a separate cross-project effort covering every `.env`. |
 
-Two production environment values must change in the same edit that sets
-`AUTH_ENABLED=true`, and neither is safe to leave as-is:
+Two production environment values had to change alongside `AUTH_ENABLED=true`,
+and both were corrected in that edit (see the 2026-08-28 section below):
 
-- `PUBLIC_BASE_URL` is still `https://illinoislotterytracker.com`; it must
-  become `https://scratchoffdata.com` so the derived callback matches the
-  Google client.
-- `AUTH_TRUSTED_PROXY_HOPS` is `none`. Behind this proxy that makes every
+- `PUBLIC_BASE_URL` was `https://illinoislotterytracker.com` and had to become
+  `https://scratchoffdata.com`, because the callback is derived from it and
+  must match the Google client exactly.
+- `AUTH_TRUSTED_PROXY_HOPS` was `none`. Behind this proxy that made every
   request appear to originate from `127.0.0.1`, so the in-process limiter would
-  place all users in a single bucket. It must name the explicit loopback hop.
+  have placed all users in a single bucket.
 
 ## Authentication enabled — 2026-08-28
 
@@ -69,6 +69,10 @@ addresses rather than the proxy. The session signing key is distinct from
 development, `.env` remains mode `0600`, and the service runs a single worker.
 
 Rollback remains one edit and one restart: set `AUTH_ENABLED=false` and restart
-`illinois-lottery-prod-api`; every authenticated route then fails closed. Do not infer Google
-age, residence, password, passkey, or MFA verification from this login or
-recent-account-selection flow.
+`illinois-lottery-prod-api`; every authenticated route then fails closed.
+
+Do not infer Google age, residence, password, passkey, or MFA verification from
+this login or recent-account-selection flow.
+
+Still open, and deliberately outside this gate: protected production secret
+delivery, deferred to a separate cross-project effort covering every `.env`.
