@@ -17,17 +17,64 @@ from dotenv import dotenv_values
 class Target:
     name: str
     project_root: Path
-    env_file: Path
+    environment: dict[str, str]
 
 
 def _target_environment(target: Target) -> dict[str, str]:
-    values = dotenv_values(target.env_file)
-    environment = os.environ.copy()
-    for key, value in values.items():
-        if value is not None:
-            environment[key] = value
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key
+        not in {
+            "APP_ENV",
+            "EXPECTED_DATABASE_NAME",
+            "DEV_EXPECTED_DATABASE_NAME",
+            "PUBLIC_BASE_URL",
+            "ILT_DISABLE_DOTENV",
+        }
+        and not key.endswith("DATABASE_URL")
+        and not key.startswith("AUTH_")
+        and not key.startswith("GOOGLE_OIDC_")
+    }
+    environment.update(target.environment)
     environment["PYTHONPATH"] = str(target.project_root / "src")
     return environment
+
+
+def _required(values: dict[str, str | None], key: str) -> str:
+    value = values.get(key)
+    if value is None or not value.strip():
+        raise ValueError(f"application environment is missing {key}")
+    return value.strip()
+
+
+def build_targets(project_root: Path, env_file: Path) -> tuple[Target, Target]:
+    """Build least-privilege importer environments from the canonical prod file."""
+    values = dict(dotenv_values(env_file))
+    if _required(values, "APP_ENV") != "production":
+        raise ValueError("application environment APP_ENV must be production")
+    raw_data_dir = _required(values, "RAW_DATA_DIR")
+    production = {
+        "APP_ENV": "production",
+        "EXPECTED_DATABASE_NAME": _required(values, "EXPECTED_DATABASE_NAME"),
+        "DATABASE_URL": _required(values, "DATABASE_URL"),
+        "RAW_DATA_DIR": raw_data_dir,
+        "AUTH_ENABLED": "false",
+        "ILT_DISABLE_DOTENV": "true",
+    }
+    development = {
+        "APP_ENV": "development",
+        "EXPECTED_DATABASE_NAME": _required(values, "DEV_EXPECTED_DATABASE_NAME"),
+        "DATABASE_URL": _required(values, "DEV_DATABASE_URL"),
+        "RAW_DATA_DIR": raw_data_dir,
+        "AUTH_ENABLED": "false",
+        "ILT_DISABLE_DOTENV": "true",
+    }
+    root = project_root.resolve()
+    return (
+        Target("development", root, development),
+        Target("production", root, production),
+    )
 
 
 def _run_target(target: Target, bundle: Path) -> int:
@@ -54,19 +101,18 @@ def _run_target(target: Target, bundle: Path) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", required=True, type=Path)
-    parser.add_argument("--development-root", required=True, type=Path)
-    parser.add_argument("--development-env", required=True, type=Path)
-    parser.add_argument("--production-root", required=True, type=Path)
-    parser.add_argument("--production-env", required=True, type=Path)
+    parser.add_argument("--project-root", required=True, type=Path)
+    parser.add_argument("--application-env", required=True, type=Path)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    targets = (
-        Target("development", args.development_root.resolve(), args.development_env.resolve()),
-        Target("production", args.production_root.resolve(), args.production_env.resolve()),
-    )
+    try:
+        targets = build_targets(args.project_root, args.application_env.resolve())
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
     results: dict[str, int] = {}
     for target in targets:
         try:

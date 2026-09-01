@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from illinois_lottery_tracker import config
 from illinois_lottery_tracker.config import DEFAULT_RAW_DATA_DIR, Settings, load_settings
 
 
@@ -50,3 +51,20 @@ def test_require_database_url_returns_when_set():
     settings = Settings(database_url="postgresql://x/y", raw_data_dir="data/raw")
 
     assert settings.require_database_url() == "postgresql://x/y"
+
+
+def test_collector_can_disable_automatic_project_dotenv(monkeypatch, tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    (project_root / ".env").write_text(
+        "DATABASE_URL=postgresql://example/should-not-load\nRAW_DATA_DIR=private/raw\n"
+    )
+    monkeypatch.setattr(config, "_project_root", lambda: project_root)
+    monkeypatch.setenv("ILT_DISABLE_DOTENV", "true")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("RAW_DATA_DIR", raising=False)
+
+    settings = load_settings()
+
+    assert settings.database_url is None
+    assert settings.raw_data_dir == DEFAULT_RAW_DATA_DIR

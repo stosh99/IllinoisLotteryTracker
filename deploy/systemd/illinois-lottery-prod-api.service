@@ -5,13 +5,13 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/stosh99/apps/illinois-lottery-tracker/current
-EnvironmentFile=/home/stosh99/.config/illinois-lottery-tracker/production.env
-Environment=PYTHONPATH=/home/stosh99/apps/illinois-lottery-tracker/current/src
-ExecStart=/home/stosh99/apps/illinois-lottery-tracker/current/.venv/bin/uvicorn illinois_lottery_tracker.api:app --host 127.0.0.1 --port 8766
+User=stosh99
+WorkingDirectory=/home/stosh99/projects/IllinoisLotteryTracker
+Environment=PYTHONPATH=/home/stosh99/projects/IllinoisLotteryTracker/src
+ExecStart=/home/stosh99/projects/IllinoisLotteryTracker/.venv/bin/uvicorn illinois_lottery_tracker.api:app --host 127.0.0.1 --port 8766 --proxy-headers --forwarded-allow-ips 127.0.0.1
 Restart=on-failure
 RestartSec=5
 UMask=0027
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target

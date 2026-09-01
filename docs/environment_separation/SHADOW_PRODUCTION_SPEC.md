@@ -1,5 +1,10 @@
 # Development / shadow-production separation
 
+> **Superseded topology.** This is the historical shadow-production design. The
+> current target has one production application in the official VPS checkout and
+> no VPS development application. See [DEPLOYMENT.md](../DEPLOYMENT.md) and
+> [SYSTEMD_SETUP.md](../../deploy/SYSTEMD_SETUP.md) for current operations.
+
 Status: historical specification for the shadow phase completed on 2026-08-11.
 The current public-production state and rollback boundary are recorded in
 [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).

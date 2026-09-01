@@ -18,9 +18,9 @@ The canonical public site is [scratchoffdata.com](https://scratchoffdata.com).
 Development and production are separated. One database-free collector feeds immutable
 evidence bundles to independent databases and importers; Nginx exposes only the
 loopback-bound production application over HTTPS.
-See
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the current target and
 [docs/environment_separation/IMPLEMENTATION_STATUS.md](docs/environment_separation/IMPLEMENTATION_STATUS.md)
-for the verified state and rollback boundary.
+for the superseded release-tree state retained as rollback history.
 The controlled public-domain cutover and rollback procedure is
 [deploy/DOMAIN_MIGRATION.md](deploy/DOMAIN_MIGRATION.md).
 
@@ -109,8 +109,15 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Then edit `.env` and set `DATABASE_URL` to point at your local PostgreSQL
-database. `.env` is git-ignored — never commit real credentials.
+Then edit `.env` and set `DATABASE_URL` to the guarded development database,
+normally reached through an SSH tunnel to the VPS. Set `APP_ENV=development`
+and `EXPECTED_DATABASE_NAME=illinois_lottery_tracker_dev`. Each development
+machine keeps its own git-ignored `.env` and authentication root key; never copy
+the production `.env` to a development machine or commit real credentials.
+
+See [docs/REMOTE_DEV.md](docs/REMOTE_DEV.md) for the complete workstation setup.
+The checkout at `/home/stosh99/projects/IllinoisLotteryTracker` on the VPS is the
+production application and must not be used for development work.
 
 ## Common commands
 
@@ -170,13 +177,15 @@ The installed scheduler collects once and fans the same verified bundle out to b
 environments. Run it idempotently with:
 
 ```bash
-systemctl --user start illinois-lottery-source-fanout.service
+sudo systemctl start illinois-lottery-source-fanout.service
 ```
 
-Environment-specific credentials are stored outside the repository. See
-[deploy/SYSTEMD_SETUP.md](deploy/SYSTEMD_SETUP.md) for status, comparison, and
-rollback commands. The command below is the preserved legacy single-database runner,
-not the active scheduler:
+The VPS keeps its git-ignored canonical production configuration at the project
+root `.env`. The collector is deliberately launched without database or
+authentication credentials; the fanout passes a least-privilege environment to
+each importer. See [deploy/SYSTEMD_SETUP.md](deploy/SYSTEMD_SETUP.md) for status,
+comparison, and rollback commands. The command below is the preserved legacy
+single-database runner, not the active scheduler:
 
 ```bash
 python scripts/run_nightly_unpaid_prizes_pipeline.py \

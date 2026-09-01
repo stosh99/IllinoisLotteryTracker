@@ -111,8 +111,10 @@ Resolution:
 - Merge `topology-cutover` into `main` whenever convenient (main then has both).
 - At Track C, the VPS switches to `main` and the feature work deploys deliberately.
 
-Note: this runbook lives on `main` (`65b3eef`), so the `topology-cutover` branch
-will not contain it. Read the plan from `main`; execute on the branch.
+This runbook was authored on `main` (`65b3eef`). At the owner's request, the five
+architecture-planning documents were later copied onto `topology-cutover` as a
+documentation-only change so the execution reference remains visible. No feature
+code or migration `0012` accompanied that copy.
 
 ---
 

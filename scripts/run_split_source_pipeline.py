@@ -13,10 +13,8 @@ from pathlib import Path
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--development-root", required=True, type=Path)
-    parser.add_argument("--development-env", required=True, type=Path)
-    parser.add_argument("--production-root", required=True, type=Path)
-    parser.add_argument("--production-env", required=True, type=Path)
+    parser.add_argument("--project-root", required=True, type=Path)
+    parser.add_argument("--application-env", required=True, type=Path)
     parser.add_argument("--raw-root", required=True, type=Path)
     parser.add_argument("--chrome-profile-dir", required=True, type=Path)
     parser.add_argument("--chrome-force-x11", action="store_true")
@@ -28,16 +26,30 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    development_root = args.development_root.resolve()
-    environment = os.environ.copy()
-    environment.pop("DATABASE_URL", None)
-    environment.pop("EXPECTED_DATABASE_NAME", None)
+    project_root = args.project_root.resolve()
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key
+        not in {
+            "APP_ENV",
+            "EXPECTED_DATABASE_NAME",
+            "DEV_EXPECTED_DATABASE_NAME",
+            "PUBLIC_BASE_URL",
+            "ILT_DISABLE_DOTENV",
+        }
+        and not key.endswith("DATABASE_URL")
+        and not key.startswith("AUTH_")
+        and not key.startswith("GOOGLE_OIDC_")
+    }
     environment["APP_ENV"] = "collector"
+    environment["AUTH_ENABLED"] = "false"
+    environment["ILT_DISABLE_DOTENV"] = "true"
     environment["RAW_DATA_DIR"] = str(args.raw_root.resolve())
-    environment["PYTHONPATH"] = str(development_root / "src")
+    environment["PYTHONPATH"] = str(project_root / "src")
     collect_command = [
         sys.executable,
-        str(development_root / "scripts" / "collect_source_bundle.py"),
+        str(project_root / "scripts" / "collect_source_bundle.py"),
         "--chrome-profile-dir",
         str(args.chrome_profile_dir.resolve()),
     ]
@@ -51,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
             collect_command.append(flag)
     collected = subprocess.run(
         collect_command,
-        cwd=development_root,
+        cwd=project_root,
         env=environment,
         capture_output=True,
         text=True,
@@ -70,19 +82,15 @@ def main(argv: list[str] | None = None) -> int:
     fanout = subprocess.run(
         [
             sys.executable,
-            str(development_root / "scripts" / "fanout_source_bundle.py"),
+            str(project_root / "scripts" / "fanout_source_bundle.py"),
             "--bundle",
             match.group(1),
-            "--development-root",
-            str(development_root),
-            "--development-env",
-            str(args.development_env.resolve()),
-            "--production-root",
-            str(args.production_root.resolve()),
-            "--production-env",
-            str(args.production_env.resolve()),
+            "--project-root",
+            str(project_root),
+            "--application-env",
+            str(args.application_env.resolve()),
         ],
-        cwd=development_root,
+        cwd=project_root,
         check=False,
     )
     return fanout.returncode
