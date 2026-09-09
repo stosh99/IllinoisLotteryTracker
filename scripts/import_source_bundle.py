@@ -9,9 +9,19 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from illinois_lottery_tracker.catalog import persist_catalog_run
+from illinois_lottery_tracker.catalog import (
+    persist_catalog_run,
+    reconcile_catalog_run_mappings,
+)
 from illinois_lottery_tracker.config import get_settings
 from illinois_lottery_tracker.db import get_engine
+from illinois_lottery_tracker.importer import (
+    DetailMetadataImportResult,
+    import_instant_ticket_detail_metadata,
+)
+from illinois_lottery_tracker.instant_ticket_detail_parser import (
+    parse_instant_ticket_detail_html,
+)
 from illinois_lottery_tracker.pipeline import (
     DuplicateImportError,
     SourceQuarantinedError,
@@ -21,10 +31,30 @@ from illinois_lottery_tracker.pipeline import (
     run_from_file,
 )
 from illinois_lottery_tracker.source_bundle import (
+    SourceBundle,
     bundle_file_path,
     catalog_captures,
     load_source_bundle,
 )
+
+
+def import_bundle_detail_metadata(
+    session: Session,
+    *,
+    raw_root: Path,
+    bundle: SourceBundle,
+    catalog_run_id: int,
+) -> tuple[DetailMetadataImportResult, int]:
+    details = [
+        parse_instant_ticket_detail_html(
+            bundle_file_path(raw_root, item), source_url=item.source_url
+        )
+        for item in bundle.detail_pages
+    ]
+    result = import_instant_ticket_detail_metadata(session, details)
+    session.flush()
+    resolved = reconcile_catalog_run_mappings(session, catalog_run_id)
+    return result, resolved
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -74,6 +104,12 @@ def main(argv: list[str] | None = None) -> int:
             pages = catalog_captures(raw_root, bundle)
             with Session(engine, expire_on_commit=False, future=True) as session:
                 catalog = persist_catalog_run(session, pages)
+                metadata, catalog_mappings_resolved = import_bundle_detail_metadata(
+                    session,
+                    raw_root=raw_root,
+                    bundle=bundle,
+                    catalog_run_id=catalog.scrape_run_id,
+                )
                 session.commit()
 
             factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
@@ -92,6 +128,12 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"catalog_run_id={catalog.scrape_run_id} "
         f"catalog_created={str(catalog.created).lower()}"
+    )
+    print(
+        f"detail_pages={metadata.details_seen} "
+        f"metadata_games_created={metadata.games_created} "
+        f"metadata_games_updated={metadata.games_updated} "
+        f"catalog_mappings_resolved={catalog_mappings_resolved}"
     )
     print(f"analytics_run_id={analytics.analytics_run_id} analytics_status=success")
     return 0

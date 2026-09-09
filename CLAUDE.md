@@ -60,9 +60,14 @@ and sets `ILT_DISABLE_DOTENV=true` before collecting.
 
 ## Source collection and fanout
 
-The collector publishes one immutable, content-addressed source bundle. Two
-independent importer subprocesses then import that same bundle into development and
-production using the single production checkout as their code root.
+The collector publishes one immutable, content-addressed source bundle containing
+the unpaid-prizes page, the complete catalog crawl, and verified current ticket-detail
+pages. Detail pages are captured immediately for new catalog URLs, refreshed after
+seven days, and otherwise carried forward by verified hash reference. Two independent
+importer subprocesses then import that same bundle into development and production
+using the single production checkout as their code root. Detail metadata and catalog
+mappings are imported before analytics so newly discovered games are publishable in
+the same run.
 
 Required invariants:
 

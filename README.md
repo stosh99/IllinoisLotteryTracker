@@ -174,7 +174,11 @@ backup into a disposable database and run the schema and audit checks first.
 ### Run the split source pipeline
 
 The installed scheduler collects once and fans the same verified bundle out to both
-environments. Run it idempotently with:
+environments. The bundle includes unpaid-prize data, the current catalog, and verified
+ticket-detail metadata. New detail URLs are collected immediately; existing detail
+pages are refreshed weekly and carried forward by verified hash between refreshes.
+Each importer applies detail metadata and resolves catalog mappings before calculating
+analytics. Run it idempotently with:
 
 ```bash
 sudo systemctl start illinois-lottery-source-fanout.service

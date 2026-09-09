@@ -108,9 +108,11 @@ sudo systemctl status illinois-lottery-source-fanout.service --no-pager
 sudo journalctl -u illinois-lottery-source-fanout.service -n 150 --no-pager
 ```
 
-The journal must report independent development and production outcomes. Confirm the
-same bundle reached both databases and that no database URL, password, OAuth secret,
-or root key appears in logs.
+The journal must report the detail-page count, zero unresolved detail collection
+failures, and independent development and production outcomes. Each importer must
+report its metadata updates and resolved catalog mappings before its successful
+analytics run. Confirm the same bundle reached both databases and that no database
+URL, password, OAuth secret, or root key appears in logs.
 
 The timer fires at 03:00, 04:00, 05:00, and 06:00 `America/Chicago`, with up to five
 minutes of jitter and `Persistent=true`.

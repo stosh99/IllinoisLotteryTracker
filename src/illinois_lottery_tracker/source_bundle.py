@@ -1,4 +1,4 @@
-"""Immutable database-independent manifests for one complete source capture."""
+"""Immutable manifests for prize, catalog, and ticket-detail source evidence."""
 
 from __future__ import annotations
 
@@ -15,7 +15,8 @@ from .catalog import CatalogPageCapture
 from .instant_ticket_discovery import parse_instant_ticket_hub_html
 from .raw_collector import RawCollectionResult
 
-BUNDLE_FORMAT_VERSION = 1
+BUNDLE_FORMAT_VERSION = 2
+SUPPORTED_BUNDLE_FORMAT_VERSIONS = frozenset({1, BUNDLE_FORMAT_VERSION})
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,7 @@ class SourceBundle:
     created_at: datetime
     unpaid_prizes: BundleFile
     catalog_pages: tuple[BundleFile, ...]
+    detail_pages: tuple[BundleFile, ...]
     manifest_path: Path
 
 
@@ -74,13 +76,21 @@ def _file_document(
     return document
 
 
-def _bundle_digest(unpaid: dict[str, Any], catalog: list[dict[str, Any]]) -> str:
+def _bundle_digest(
+    format_version: int,
+    unpaid: dict[str, Any],
+    catalog: list[dict[str, Any]],
+    details: list[dict[str, Any]],
+) -> str:
+    document: dict[str, Any] = {
+        "format_version": format_version,
+        "unpaid_prizes": unpaid,
+        "catalog_pages": catalog,
+    }
+    if format_version >= 2:
+        document["detail_pages"] = details
     payload = json.dumps(
-        {
-            "format_version": BUNDLE_FORMAT_VERSION,
-            "unpaid_prizes": unpaid,
-            "catalog_pages": catalog,
-        },
+        document,
         sort_keys=True,
         separators=(",", ":"),
     ).encode()
@@ -92,6 +102,7 @@ def write_source_bundle(
     *,
     unpaid_prizes: RawCollectionResult,
     catalog_pages: list[CatalogPageCapture],
+    detail_pages: list[RawCollectionResult] | None = None,
     created_at: datetime | None = None,
 ) -> Path:
     """Atomically publish a complete manifest after all captures validate."""
@@ -101,7 +112,16 @@ def write_source_bundle(
         _file_document(root, page.collection, page_number=page.page_number)
         for page in sorted(catalog_pages, key=lambda item: item.page_number)
     ]
-    bundle_id = _bundle_digest(unpaid, catalog)
+    details = [
+        _file_document(root, detail)
+        for detail in sorted(
+            detail_pages or [], key=lambda item: item.source_url.rstrip("/")
+        )
+    ]
+    detail_urls = [item["source_url"].rstrip("/") for item in details]
+    if len(detail_urls) != len(set(detail_urls)):
+        raise ValueError("source bundle contains duplicate detail-page URLs")
+    bundle_id = _bundle_digest(BUNDLE_FORMAT_VERSION, unpaid, catalog, details)
     timestamp = (created_at or datetime.now(UTC)).astimezone(UTC)
     target_dir = root / "bundles" / timestamp.strftime("%Y-%m-%d")
     target_dir.mkdir(mode=0o750, parents=True, exist_ok=True)
@@ -112,6 +132,7 @@ def write_source_bundle(
         "created_at": timestamp.isoformat(),
         "unpaid_prizes": unpaid,
         "catalog_pages": catalog,
+        "detail_pages": details,
     }
     encoded = (json.dumps(document, indent=2, sort_keys=True) + "\n").encode()
     if target.exists():
@@ -183,20 +204,32 @@ def load_source_bundle(raw_root: Path, manifest_path: Path) -> SourceBundle:
     root = raw_root.expanduser().resolve()
     manifest = manifest_path.expanduser().resolve()
     document = json.loads(manifest.read_text(encoding="utf-8"))
-    if document.get("format_version") != BUNDLE_FORMAT_VERSION:
+    format_version = document.get("format_version")
+    if format_version not in SUPPORTED_BUNDLE_FORMAT_VERSIONS:
         raise ValueError("unsupported source-bundle format version")
     unpaid_document = document.get("unpaid_prizes")
     catalog_document = document.get("catalog_pages")
+    detail_document = document.get("detail_pages", [])
     if not isinstance(catalog_document, list) or not catalog_document:
         raise ValueError("source bundle has no catalog pages")
-    expected_id = _bundle_digest(unpaid_document, catalog_document)
+    if not isinstance(detail_document, list):
+        raise ValueError("source-bundle detail_pages must be a list")
+    if format_version == 1 and detail_document:
+        raise ValueError("source-bundle format 1 cannot contain detail pages")
+    expected_id = _bundle_digest(
+        int(format_version), unpaid_document, catalog_document, detail_document
+    )
     if document.get("bundle_id") != expected_id:
         raise ValueError("source-bundle ID does not match its contents")
     unpaid = _parse_file(root, unpaid_document, page=False)
     catalog = tuple(_parse_file(root, item, page=True) for item in catalog_document)
+    details = tuple(_parse_file(root, item, page=False) for item in detail_document)
     numbers = [item.page_number for item in catalog]
     if numbers != list(range(1, len(catalog) + 1)):
         raise ValueError("catalog pages are not a contiguous 1-based sequence")
+    detail_urls = [item.source_url.rstrip("/") for item in details]
+    if len(detail_urls) != len(set(detail_urls)):
+        raise ValueError("source bundle contains duplicate detail-page URLs")
     created_at = datetime.fromisoformat(str(document["created_at"]))
     if created_at.tzinfo is None:
         raise ValueError("bundle created_at must include a timezone")
@@ -205,12 +238,26 @@ def load_source_bundle(raw_root: Path, manifest_path: Path) -> SourceBundle:
         created_at=created_at.astimezone(UTC),
         unpaid_prizes=unpaid,
         catalog_pages=catalog,
+        detail_pages=details,
         manifest_path=manifest,
     )
 
 
 def bundle_file_path(raw_root: Path, item: BundleFile) -> Path:
     return _safe_file(raw_root, item.path)
+
+
+def bundle_file_collection(raw_root: Path, item: BundleFile) -> RawCollectionResult:
+    path = bundle_file_path(raw_root, item)
+    return RawCollectionResult(
+        source_url=item.source_url,
+        file_path=str(path),
+        sha256=item.sha256,
+        captured_at=item.captured_at,
+        content_type=item.content_type,
+        bytes_written=item.bytes_written,
+        fetch_method=item.fetch_method,  # type: ignore[arg-type]
+    )
 
 
 def catalog_captures(raw_root: Path, bundle: SourceBundle) -> list[CatalogPageCapture]:
@@ -221,19 +268,25 @@ def catalog_captures(raw_root: Path, bundle: SourceBundle) -> list[CatalogPageCa
         pages.append(
             CatalogPageCapture(
                 page_number=item.page_number or 0,
-                collection=RawCollectionResult(
-                    source_url=item.source_url,
-                    file_path=str(path),
-                    sha256=item.sha256,
-                    captured_at=item.captured_at,
-                    content_type=item.content_type,
-                    bytes_written=item.bytes_written,
-                    fetch_method=item.fetch_method,  # type: ignore[arg-type]
-                ),
+                collection=bundle_file_collection(raw_root, item),
                 discovery=discovery,
             )
         )
     return pages
+
+
+def detail_captures(raw_root: Path, bundle: SourceBundle) -> list[RawCollectionResult]:
+    return [bundle_file_collection(raw_root, item) for item in bundle.detail_pages]
+
+
+def bundle_has_complete_detail_coverage(raw_root: Path, bundle: SourceBundle) -> bool:
+    catalog_urls = {
+        ticket.detail_url.rstrip("/")
+        for page in catalog_captures(raw_root, bundle)
+        for ticket in page.discovery.tickets
+    }
+    detail_urls = {item.source_url.rstrip("/") for item in bundle.detail_pages}
+    return bool(catalog_urls) and catalog_urls <= detail_urls
 
 
 def valid_bundle_manifests(raw_root: Path) -> list[Path]:

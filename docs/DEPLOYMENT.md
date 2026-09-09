@@ -19,8 +19,10 @@ That checkout is production. It is not a development workspace.
 - Shared development database: `illinois_lottery_tracker_dev`
 
 The source fanout runs as a separate system service and timer. It collects one
-database-free bundle and independently imports it into both databases from the same
-code checkout.
+database-free bundle containing prize, catalog, and verified detail-page evidence,
+then independently imports it into both databases from the same code checkout.
+Metadata and catalog mappings are applied before analytics so new games do not enter
+the source history without entering the publication pipeline.
 
 ## Deployment preflight
 
