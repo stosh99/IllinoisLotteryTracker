@@ -7,7 +7,7 @@ import json
 import re
 import unicodedata
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -24,6 +24,7 @@ from .models import (
     CatalogQualityIssue,
     Game,
     GameCatalogSnapshot,
+    GameSnapshot,
     RawSourceSnapshot,
     ScrapeRun,
 )
@@ -268,7 +269,9 @@ def persist_catalog_run(
     manifest_sha256 = catalog_manifest_sha256(pages)
     observed_at = max(page.collection.captured_at for page in pages).astimezone(UTC)
     source_date = chicago_source_date(observed_at)
-    previous_entries = _previous_catalog_entries(session, observed_at)
+    previous_run = _previous_catalog_run(session, observed_at)
+    previous_snapshots = previous_run.catalog_snapshots if previous_run else []
+    previous_entries = _catalog_entry_names(session, previous_snapshots)
     current_urls = {card.detail_url for _, _, card in cards}
     missing_since_previous = sorted(
         url for url in previous_entries if url not in current_urls
@@ -348,6 +351,7 @@ def persist_catalog_run(
     by_url, by_name_price = _mapping_indexes(session)
     mapped_count = 0
     ambiguous_count = 0
+    mapped_cards: list[tuple[DiscoveredInstantTicket, Game]] = []
     for page_number, position, card in cards:
         mapped_game = by_url.get(card.detail_url.rstrip("/"))
         candidates = (
@@ -362,6 +366,7 @@ def persist_catalog_run(
             ambiguous_count += 1
         if mapped_game is not None:
             mapped_count += 1
+            mapped_cards.append((card, mapped_game))
         snapshot = GameCatalogSnapshot(
             scrape_run=run,
             game_id=mapped_game.id if mapped_game else None,
@@ -403,6 +408,12 @@ def persist_catalog_run(
                 ),
                 severity="warning" if count_check.mismatch else "info",
                 details={
+                    "summary": (
+                        f"{count_check.unique_count} unique catalog cards "
+                        f"({count_check.raw_count} raw) against a source total of "
+                        f"{count_check.source_total}; repeated: "
+                        f"{', '.join(count_check.duplicate_urls) or 'none'}"
+                    ),
                     "unique_count": count_check.unique_count,
                     "raw_count": count_check.raw_count,
                     **comparison,
@@ -412,6 +423,14 @@ def persist_catalog_run(
                 },
             )
         )
+    for issue in _game_identity_issues(
+        session,
+        run_id=run.id,
+        source_date=source_date,
+        mapped_cards=mapped_cards,
+        previous_snapshots=previous_snapshots,
+    ):
+        session.add(issue)
     run.is_complete = True
     session.flush()
     return CatalogPersistResult(
@@ -427,9 +446,9 @@ def persist_catalog_run(
     )
 
 
-def _previous_catalog_entries(session: Session, observed_at: datetime) -> dict[str, str]:
-    """Return detail URL -> display name for the latest complete run before this one."""
-    previous = session.scalar(
+def _previous_catalog_run(session: Session, observed_at: datetime) -> ScrapeRun | None:
+    """Return the latest complete catalog run observed before this one."""
+    return session.scalar(
         select(ScrapeRun)
         .where(
             ScrapeRun.workflow == "instant_ticket_catalog",
@@ -440,25 +459,156 @@ def _previous_catalog_entries(session: Session, observed_at: datetime) -> dict[s
         .order_by(ScrapeRun.source_observed_at.desc(), ScrapeRun.id.desc())
         .limit(1)
     )
-    if previous is None:
-        return {}
-    # Card display names can be image alt text; prefer the mapped game's name.
-    names = {
-        game.id: game.name
-        for game in session.scalars(
-            select(Game).where(
-                Game.id.in_(
-                    entry.game_id
-                    for entry in previous.catalog_snapshots
-                    if entry.game_id is not None
-                )
+
+
+def _catalog_entry_names(
+    session: Session, snapshots: list[GameCatalogSnapshot]
+) -> dict[str, str]:
+    """Return detail URL -> name, preferring the mapped game's name.
+
+    Card display names can be image alt text, so they are only a fallback.
+    """
+    game_ids = [entry.game_id for entry in snapshots if entry.game_id is not None]
+    names = (
+        {game.id: game.name for game in session.scalars(select(Game).where(Game.id.in_(game_ids)))}
+        if game_ids
+        else {}
+    )
+    return {entry.detail_url: names.get(entry.game_id, entry.display_name) for entry in snapshots}
+
+
+def _game_identity_issues(
+    session: Session,
+    *,
+    run_id: int,
+    source_date: date,
+    mapped_cards: list[tuple[DiscoveredInstantTicket, Game]],
+    previous_snapshots: list[GameCatalogSnapshot],
+) -> list[CatalogQualityIssue]:
+    """Check mapped cards by game number rather than by URL or page position."""
+    issues: list[CatalogQualityIssue] = []
+
+    def issue(code: str, game: Game, summary: str, **details) -> None:
+        issues.append(
+            CatalogQualityIssue(
+                scrape_run_id=run_id,
+                code=code,
+                severity="warning",
+                detail_url=game.source_url,
+                details={
+                    "game_number": game.game_number,
+                    "name": game.name,
+                    "summary": summary,
+                    **details,
+                },
             )
         )
+
+    cards_by_game: dict[int, list[DiscoveredInstantTicket]] = {}
+    games: dict[int, Game] = {}
+    for card, game in mapped_cards:
+        cards_by_game.setdefault(game.id, []).append(card)
+        games[game.id] = game
+    previous_names = {
+        entry.game_id: entry.display_name
+        for entry in previous_snapshots
+        if entry.game_id is not None
     }
-    return {
-        entry.detail_url: names.get(entry.game_id, entry.display_name)
-        for entry in previous.catalog_snapshots
-    }
+
+    for game_id, game_cards in cards_by_game.items():
+        game = games[game_id]
+        for card in game_cards:
+            if game.ticket_price is not None and Decimal(card.ticket_price) != game.ticket_price:
+                issue(
+                    "CATALOG_PRICE_MISMATCH",
+                    game,
+                    f"catalog price ${card.ticket_price} differs from recorded "
+                    f"${game.ticket_price}",
+                    catalog_price=card.ticket_price,
+                    recorded_price=str(game.ticket_price),
+                )
+            card_name = card.display_name or ""
+            # Some card names differ cosmetically from the recorded name every day;
+            # only report a mismatch when the card's name is new since the last run.
+            if normalize_catalog_name(card_name) != normalize_catalog_name(
+                game.name
+            ) and previous_names.get(game_id) != card_name:
+                issue(
+                    "CATALOG_NAME_MISMATCH",
+                    game,
+                    f"catalog name {card_name!r} differs from recorded {game.name!r}",
+                    catalog_name=card_name,
+                    previous_catalog_name=previous_names.get(game_id),
+                )
+
+    prize_run_id = session.scalar(
+        select(ScrapeRun.id)
+        .where(
+            ScrapeRun.workflow == "unpaid_prizes",
+            ScrapeRun.status == "success",
+            ScrapeRun.is_complete.is_(True),
+            ScrapeRun.source_date == source_date,
+        )
+        .order_by(ScrapeRun.source_observed_at.desc(), ScrapeRun.id.desc())
+        .limit(1)
+    )
+    if prize_run_id is not None:
+        prize_game_ids = set(
+            session.scalars(
+                select(GameSnapshot.game_id).where(GameSnapshot.scrape_run_id == prize_run_id)
+            )
+        )
+        for game_id in sorted(set(previous_names) - set(cards_by_game)):
+            if game_id not in prize_game_ids:
+                continue
+            game = session.get(Game, game_id)
+            issue(
+                "CATALOG_GAME_MISSING",
+                game,
+                f"game {game.game_number} was in the previous catalog and is still in "
+                "the prize data, but is missing from this catalog",
+            )
+    return issues
+
+
+def record_duplicate_game_numbers(
+    session: Session,
+    scrape_run_id: int,
+    detail_game_numbers: dict[str, str | None],
+) -> int:
+    """Record catalog cards whose detail pages report the same game number.
+
+    ``detail_game_numbers`` maps detail URL -> the game number its detail page states.
+    URLs alone are not a reliable identity: the hub can link one game from two cards.
+    """
+    urls_by_number: dict[str, list[str]] = {}
+    for snapshot in session.scalars(
+        select(GameCatalogSnapshot).where(GameCatalogSnapshot.scrape_run_id == scrape_run_id)
+    ):
+        number = detail_game_numbers.get(snapshot.detail_url.rstrip("/"))
+        if number:
+            urls_by_number.setdefault(number, []).append(snapshot.detail_url)
+    recorded = 0
+    for number, urls in sorted(urls_by_number.items()):
+        if len(urls) < 2:
+            continue
+        game = session.scalar(select(Game).where(Game.game_number == number))
+        session.add(
+            CatalogQualityIssue(
+                scrape_run_id=scrape_run_id,
+                code="CATALOG_DUPLICATE_GAME",
+                severity="warning",
+                details={
+                    "game_number": number,
+                    "name": game.name if game else None,
+                    "summary": f"{len(urls)} catalog cards link to game {number}",
+                    "detail_urls": sorted(urls),
+                },
+            )
+        )
+        recorded += 1
+    session.flush()
+    return recorded
 
 
 def reconcile_catalog_run_mappings(session: Session, scrape_run_id: int) -> int:

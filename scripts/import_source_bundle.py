@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from illinois_lottery_tracker.catalog import (
     persist_catalog_run,
     reconcile_catalog_run_mappings,
+    record_duplicate_game_numbers,
 )
 from illinois_lottery_tracker.config import get_settings
 from illinois_lottery_tracker.db import get_engine
@@ -44,6 +45,7 @@ def import_bundle_detail_metadata(
     raw_root: Path,
     bundle: SourceBundle,
     catalog_run_id: int,
+    created: bool = True,
 ) -> tuple[DetailMetadataImportResult, int]:
     details = [
         parse_instant_ticket_detail_html(
@@ -54,6 +56,16 @@ def import_bundle_detail_metadata(
     result = import_instant_ticket_detail_metadata(session, details)
     session.flush()
     resolved = reconcile_catalog_run_mappings(session, catalog_run_id)
+    if created:
+        record_duplicate_game_numbers(
+            session,
+            catalog_run_id,
+            {
+                detail.source_url.rstrip("/"): detail.game_number
+                for detail in details
+                if detail.source_url
+            },
+        )
     return result, resolved
 
 
@@ -109,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
                     raw_root=raw_root,
                     bundle=bundle,
                     catalog_run_id=catalog.scrape_run_id,
+                    created=catalog.created,
                 )
                 session.commit()
 

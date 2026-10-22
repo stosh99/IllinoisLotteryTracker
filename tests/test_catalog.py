@@ -15,6 +15,7 @@ from illinois_lottery_tracker.catalog import (
     CatalogValidationError,
     normalize_catalog_name,
     persist_catalog_run,
+    record_duplicate_game_numbers,
 )
 from illinois_lottery_tracker.instant_ticket_discovery import (
     DiscoveredInstantTicket,
@@ -25,6 +26,7 @@ from illinois_lottery_tracker.models import (
     CatalogQualityIssue,
     Game,
     GameCatalogSnapshot,
+    GameSnapshot,
     ScrapeRun,
 )
 from illinois_lottery_tracker.raw_collector import RawCollectionResult
@@ -238,3 +240,140 @@ def _catalog_pages(
             )
         )
     return pages
+
+
+def _seed_catalog_games(session: Session) -> dict[int, Game]:
+    games = {
+        index: Game(
+            game_number=str(9000 + index),
+            name=f"Catalog Game {index}",
+            ticket_price=index if index <= 30 else 30,
+            source_url=f"https://example.test/game-{index}",
+        )
+        for index in range(1, 54)
+    }
+    session.add_all(games.values())
+    session.flush()
+    return games
+
+
+def _seed_prize_run(session: Session, games: list[Game], *, source_date) -> None:
+    run = ScrapeRun(
+        started_at=datetime(2026, 8, 9, 11, tzinfo=UTC),
+        status="success",
+        workflow="unpaid_prizes",
+        source_observed_at=datetime(2026, 8, 9, 11, tzinfo=UTC),
+        source_date=source_date,
+        source_sha256="f" * 64,
+        parsed_game_count=len(games),
+        parsed_prize_tier_count=len(games),
+        is_complete=True,
+    )
+    session.add(run)
+    session.flush()
+    session.add_all(GameSnapshot(game_id=game.id, scrape_run_id=run.id) for game in games)
+    session.flush()
+
+
+def _issues(session: Session, run_id: int, code: str) -> list[CatalogQualityIssue]:
+    return session.scalars(
+        select(CatalogQualityIssue).where(
+            CatalogQualityIssue.scrape_run_id == run_id,
+            CatalogQualityIssue.code == code,
+        )
+    ).all()
+
+
+def test_catalog_run_flags_game_missing_that_is_still_in_prize_data(tmp_path: Path):
+    # Reproduces 2026-10-22: Monopoly vanished from the catalog for a morning while
+    # it still had unclaimed prizes, then returned the same afternoon.
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        games = _seed_catalog_games(session)
+        persist_catalog_run(session, _catalog_pages(tmp_path))
+        next_day = datetime(2026, 8, 9, 12, tzinfo=UTC)
+        # Game 53 is still in the prize data; game 52 has left it (retired).
+        _seed_prize_run(
+            session,
+            [game for index, game in games.items() if index != 52],
+            source_date=next_day.date(),
+        )
+        pages = _catalog_pages(tmp_path, captured_at=next_day)
+        pages[-1].discovery.tickets.pop()
+        pages[-1].discovery.tickets.pop()
+
+        result = persist_catalog_run(session, pages)
+
+        missing = _issues(session, result.scrape_run_id, "CATALOG_GAME_MISSING")
+        assert [issue.details["game_number"] for issue in missing] == ["9053"]
+        assert missing[0].details["name"] == "Catalog Game 53"
+        assert missing[0].severity == "warning"
+
+
+def test_catalog_run_flags_price_mismatch_against_recorded_game(tmp_path: Path):
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        games = _seed_catalog_games(session)
+        games[5].ticket_price = 10
+        session.flush()
+
+        result = persist_catalog_run(session, _catalog_pages(tmp_path))
+
+        mismatches = _issues(session, result.scrape_run_id, "CATALOG_PRICE_MISMATCH")
+        assert [issue.details["game_number"] for issue in mismatches] == ["9005"]
+        assert mismatches[0].details["catalog_price"] == 5
+
+
+def test_catalog_run_flags_name_mismatch_only_when_card_name_changes(tmp_path: Path):
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        games = _seed_catalog_games(session)
+        # A permanent cosmetic difference, like "Gold Casino" vs "Golden Casino".
+        games[7].name = "Golden Game 7"
+        session.flush()
+        first = persist_catalog_run(session, _catalog_pages(tmp_path))
+        same = persist_catalog_run(
+            session,
+            _catalog_pages(tmp_path, captured_at=datetime(2026, 8, 9, 12, tzinfo=UTC)),
+        )
+        changed_pages = _catalog_pages(
+            tmp_path, captured_at=datetime(2026, 8, 10, 12, tzinfo=UTC)
+        )
+        changed_pages[0].discovery.tickets[6] = DiscoveredInstantTicket(
+            detail_url="https://example.test/game-7",
+            slug="game-7",
+            display_name="Renamed Game 7",
+            ticket_price=7,
+        )
+        changed = persist_catalog_run(session, changed_pages)
+
+        assert len(_issues(session, first.scrape_run_id, "CATALOG_NAME_MISMATCH")) == 1
+        assert _issues(session, same.scrape_run_id, "CATALOG_NAME_MISMATCH") == []
+        renamed = _issues(session, changed.scrape_run_id, "CATALOG_NAME_MISMATCH")
+        assert renamed[0].details["catalog_name"] == "Renamed Game 7"
+        assert renamed[0].details["previous_catalog_name"] == "Catalog Game 7"
+
+
+def test_duplicate_game_numbers_across_detail_pages_are_recorded(tmp_path: Path):
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        _seed_catalog_games(session)
+        result = persist_catalog_run(session, _catalog_pages(tmp_path))
+        numbers = {
+            f"https://example.test/game-{index}": str(9000 + index) for index in range(1, 54)
+        }
+        numbers["https://example.test/game-41"] = "9040"
+
+        recorded = record_duplicate_game_numbers(session, result.scrape_run_id, numbers)
+
+        duplicates = _issues(session, result.scrape_run_id, "CATALOG_DUPLICATE_GAME")
+        assert recorded == 1
+        assert duplicates[0].details["game_number"] == "9040"
+        assert duplicates[0].details["detail_urls"] == [
+            "https://example.test/game-40",
+            "https://example.test/game-41",
+        ]
