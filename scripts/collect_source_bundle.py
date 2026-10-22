@@ -11,7 +11,11 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from illinois_lottery_tracker.catalog import CatalogPageCapture, collect_catalog_pages
+from illinois_lottery_tracker.catalog import (
+    CatalogPageCapture,
+    check_catalog_pages,
+    collect_catalog_pages,
+)
 from illinois_lottery_tracker.config import DEFAULT_RAW_DATA_DIR, Settings
 from illinois_lottery_tracker.instant_ticket_detail_parser import (
     parse_instant_ticket_detail_html,
@@ -258,6 +262,15 @@ def main(argv: list[str] | None = None) -> int:
     print(f"bundle_manifest={manifest}")
     print(f"unpaid_sha256={unpaid.sha256}")
     print(f"catalog_pages={len(pages)}")
+    count_check = check_catalog_pages(pages)
+    if count_check.mismatch or count_check.duplicate_urls:
+        print(
+            "WARNING: catalog count differs from source total: "
+            f"source_total={count_check.source_total} "
+            f"unique={count_check.unique_count} raw={count_check.raw_count} "
+            f"duplicates={','.join(count_check.duplicate_urls) or 'none'}",
+            file=sys.stderr,
+        )
     print(f"detail_pages={len(details)} refreshed={refreshed_details}")
     for failure in detail_failures:
         print(f"WARNING: detail-page collection failed: {failure}", file=sys.stderr)

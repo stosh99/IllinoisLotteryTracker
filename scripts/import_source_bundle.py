@@ -129,6 +129,19 @@ def main(argv: list[str] | None = None) -> int:
         f"catalog_run_id={catalog.scrape_run_id} "
         f"catalog_created={str(catalog.created).lower()}"
     )
+    if catalog.unique_entry_count != catalog.source_total or catalog.duplicate_urls:
+        print(
+            "WARNING: catalog count differs from source total: "
+            f"source_total={catalog.source_total} unique={catalog.unique_entry_count} "
+            f"duplicates={','.join(catalog.duplicate_urls) or 'none'}",
+            file=sys.stderr,
+        )
+    if catalog.missing_since_previous or catalog.new_since_previous:
+        print(
+            "catalog_changes "
+            f"missing_since_previous={','.join(catalog.missing_since_previous) or 'none'} "
+            f"new_since_previous={','.join(catalog.new_since_previous) or 'none'}"
+        )
     print(
         f"detail_pages={metadata.details_seen} "
         f"metadata_games_created={metadata.games_created} "

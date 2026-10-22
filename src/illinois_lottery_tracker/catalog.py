@@ -37,10 +37,26 @@ from .source_quality import chicago_source_date
 HUB_URL = "https://www.illinoislottery.com/games-hub/instant-tickets"
 HUB_WAIT_SELECTOR = "div.simple-game-card"
 CATALOG_PIPELINE_VERSION = "instant-ticket-catalog-v1"
+# The hub's own total occasionally disagrees with the cards it serves (for example,
+# a card repeated across a page boundary after games retire). Small disagreements
+# are published with a quality issue; larger ones still indicate a broken crawl.
+CATALOG_COUNT_TOLERANCE = 3
 
 
 class CatalogValidationError(ValueError):
     """Raised when a catalog crawl cannot be published as complete."""
+
+
+@dataclass(frozen=True)
+class CatalogCountCheck:
+    source_total: int
+    unique_count: int
+    raw_count: int
+    duplicate_urls: list[str]
+
+    @property
+    def mismatch(self) -> int:
+        return self.unique_count - self.source_total
 
 
 @dataclass(frozen=True)
@@ -60,6 +76,10 @@ class CatalogPersistResult:
     unmapped_count: int
     ambiguous_count: int
     manifest_sha256: str
+    source_total: int
+    duplicate_urls: list[str]
+    missing_since_previous: list[str]
+    new_since_previous: list[str]
 
 
 def normalize_catalog_name(value: str) -> str:
@@ -119,9 +139,14 @@ def collect_catalog_pages(
         current_url = discovery.pagination_urls[0] if discovery.pagination_urls else None
     if not captures:
         raise CatalogValidationError("catalog crawl returned no pages")
-    cards = _unique_cards(captures)
-    _validate_catalog_pages(captures, cards)
+    check_catalog_pages(captures)
     return captures
+
+
+def check_catalog_pages(pages: list[CatalogPageCapture]) -> CatalogCountCheck:
+    """Validate a crawl and report how its card count compares with the hub total."""
+    cards = _unique_cards(pages)
+    return _validate_catalog_pages(pages, cards)
 
 
 def _unique_cards(
@@ -152,7 +177,7 @@ def _unique_cards(
 def _validate_catalog_pages(
     pages: list[CatalogPageCapture],
     cards: list[tuple[int, int, DiscoveredInstantTicket]],
-) -> None:
+) -> CatalogCountCheck:
     ordered = sorted(pages, key=lambda item: item.page_number)
     page_numbers = [page.page_number for page in ordered]
     if page_numbers != list(range(1, len(ordered) + 1)):
@@ -170,10 +195,23 @@ def _validate_catalog_pages(
     if len(totals) != 1:
         raise CatalogValidationError("catalog pages disagree on the source total")
     expected_total = totals.pop()
-    if expected_total != len(cards):
+    if abs(expected_total - len(cards)) > CATALOG_COUNT_TOLERANCE:
         raise CatalogValidationError(
             f"catalog unique-card count {len(cards)} does not match source total "
             f"{expected_total}"
+        )
+    # The tolerance must not hide a partially loaded page: every page before the
+    # last is a full page, and the last page is no larger than a full page.
+    page_size = len(ordered[0].discovery.tickets)
+    for page in ordered[:-1]:
+        if len(page.discovery.tickets) != page_size:
+            raise CatalogValidationError(
+                f"catalog page {page.page_number} has {len(page.discovery.tickets)} "
+                f"cards; expected a full page of {page_size}"
+            )
+    if len(ordered) > 1 and len(ordered[-1].discovery.tickets) > page_size:
+        raise CatalogValidationError(
+            f"catalog page {ordered[-1].page_number} has more cards than a full page"
         )
     for index, page in enumerate(ordered):
         next_urls = [url.rstrip("/") for url in page.discovery.pagination_urls]
@@ -190,6 +228,21 @@ def _validate_catalog_pages(
                 )
         elif next_urls:
             raise CatalogValidationError("catalog crawl ended while a next page remained")
+    seen: set[str] = set()
+    duplicate_urls: list[str] = []
+    raw_count = 0
+    for page in ordered:
+        for card in page.discovery.tickets:
+            raw_count += 1
+            if card.detail_url in seen and card.detail_url not in duplicate_urls:
+                duplicate_urls.append(card.detail_url)
+            seen.add(card.detail_url)
+    return CatalogCountCheck(
+        source_total=expected_total,
+        unique_count=len(cards),
+        raw_count=raw_count,
+        duplicate_urls=duplicate_urls,
+    )
 
 
 def _mapping_indexes(
@@ -211,10 +264,26 @@ def persist_catalog_run(
     pages: list[CatalogPageCapture],
 ) -> CatalogPersistResult:
     cards = _unique_cards(pages)
-    _validate_catalog_pages(pages, cards)
+    count_check = _validate_catalog_pages(pages, cards)
     manifest_sha256 = catalog_manifest_sha256(pages)
     observed_at = max(page.collection.captured_at for page in pages).astimezone(UTC)
     source_date = chicago_source_date(observed_at)
+    previous_entries = _previous_catalog_entries(session, observed_at)
+    current_urls = {card.detail_url for _, _, card in cards}
+    missing_since_previous = sorted(
+        url for url in previous_entries if url not in current_urls
+    )
+    new_since_previous = (
+        sorted(url for url in current_urls if url not in previous_entries)
+        if previous_entries
+        else []
+    )
+    comparison = {
+        "source_total": count_check.source_total,
+        "duplicate_urls": count_check.duplicate_urls,
+        "missing_since_previous": missing_since_previous,
+        "new_since_previous": new_since_previous,
+    }
     existing = session.scalar(
         select(ScrapeRun).where(
             ScrapeRun.workflow == "instant_ticket_catalog",
@@ -244,6 +313,7 @@ def persist_catalog_run(
             unmapped_count=len(existing.catalog_snapshots) - mapped,
             ambiguous_count=ambiguous,
             manifest_sha256=manifest_sha256,
+            **comparison,
         )
 
     run = ScrapeRun(
@@ -322,6 +392,26 @@ def persist_catalog_run(
                     details={"candidate_game_ids": [candidate.id for candidate in candidates]},
                 )
             )
+    if count_check.mismatch or count_check.duplicate_urls:
+        session.add(
+            CatalogQualityIssue(
+                scrape_run_id=run.id,
+                code=(
+                    "CATALOG_COUNT_MISMATCH"
+                    if count_check.mismatch
+                    else "CATALOG_DUPLICATE_CARDS"
+                ),
+                severity="warning" if count_check.mismatch else "info",
+                details={
+                    "unique_count": count_check.unique_count,
+                    "raw_count": count_check.raw_count,
+                    **comparison,
+                    "missing_names": {
+                        url: previous_entries[url] for url in missing_since_previous
+                    },
+                },
+            )
+        )
     run.is_complete = True
     session.flush()
     return CatalogPersistResult(
@@ -333,7 +423,42 @@ def persist_catalog_run(
         unmapped_count=len(cards) - mapped_count,
         ambiguous_count=ambiguous_count,
         manifest_sha256=manifest_sha256,
+        **comparison,
     )
+
+
+def _previous_catalog_entries(session: Session, observed_at: datetime) -> dict[str, str]:
+    """Return detail URL -> display name for the latest complete run before this one."""
+    previous = session.scalar(
+        select(ScrapeRun)
+        .where(
+            ScrapeRun.workflow == "instant_ticket_catalog",
+            ScrapeRun.status == "success",
+            ScrapeRun.is_complete.is_(True),
+            ScrapeRun.source_observed_at < observed_at,
+        )
+        .order_by(ScrapeRun.source_observed_at.desc(), ScrapeRun.id.desc())
+        .limit(1)
+    )
+    if previous is None:
+        return {}
+    # Card display names can be image alt text; prefer the mapped game's name.
+    names = {
+        game.id: game.name
+        for game in session.scalars(
+            select(Game).where(
+                Game.id.in_(
+                    entry.game_id
+                    for entry in previous.catalog_snapshots
+                    if entry.game_id is not None
+                )
+            )
+        )
+    }
+    return {
+        entry.detail_url: names.get(entry.game_id, entry.display_name)
+        for entry in previous.catalog_snapshots
+    }
 
 
 def reconcile_catalog_run_mappings(session: Session, scrape_run_id: int) -> int:

@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from illinois_lottery_tracker.catalog import (
+    CATALOG_COUNT_TOLERANCE,
     CatalogPageCapture,
     CatalogValidationError,
     normalize_catalog_name,
@@ -75,21 +76,126 @@ def test_catalog_run_persists_daily_53_unique_entries_and_maps_known_games(
         assert len(session.scalars(select(CatalogQualityIssue)).all()) == 104
 
 
-def test_catalog_run_rejects_partial_card_count(tmp_path: Path):
+def test_catalog_run_rejects_card_count_beyond_tolerance(tmp_path: Path):
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     with Session(engine) as session:
         pages = _catalog_pages(tmp_path)
-        pages[-1].discovery.tickets.pop()
+        for _ in range(CATALOG_COUNT_TOLERANCE + 1):
+            pages[-1].discovery.tickets.pop()
         with pytest.raises(CatalogValidationError, match="does not match source total"):
             persist_catalog_run(session, pages)
         assert session.scalar(select(ScrapeRun)) is None
+
+
+def test_catalog_run_rejects_short_page_before_the_last(tmp_path: Path):
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        pages = _catalog_pages(tmp_path)
+        pages[1].discovery.tickets.pop()
+        with pytest.raises(CatalogValidationError, match="expected a full page"):
+            persist_catalog_run(session, pages)
+        assert session.scalar(select(ScrapeRun)) is None
+
+
+@pytest.mark.parametrize("total_count", [52, 54, 56])
+def test_catalog_run_publishes_small_count_mismatch_with_warning(
+    tmp_path: Path, total_count: int
+):
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        pages = _catalog_pages(tmp_path, total_count=total_count)
+
+        result = persist_catalog_run(session, pages)
+
+        assert result.created is True
+        assert result.unique_entry_count == 53
+        assert result.source_total == total_count
+        issue = session.scalar(
+            select(CatalogQualityIssue).where(
+                CatalogQualityIssue.code == "CATALOG_COUNT_MISMATCH"
+            )
+        )
+        assert issue is not None
+        assert issue.severity == "warning"
+        assert issue.details["source_total"] == total_count
+        assert issue.details["unique_count"] == 53
+
+
+def test_catalog_run_records_card_repeated_across_page_boundary(tmp_path: Path):
+    # Reproduces 2026-10-22: the hub repeated page 2's last card as page 3's first
+    # card, so 53 slots held 52 unique games against a stated total of 53.
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        pages = _catalog_pages(tmp_path)
+        repeated = pages[1].discovery.tickets[-1]
+        pages[2].discovery.tickets[0] = repeated
+
+        result = persist_catalog_run(session, pages)
+
+        assert result.unique_entry_count == 52
+        assert result.duplicate_urls == [repeated.detail_url]
+        issue = session.scalar(
+            select(CatalogQualityIssue).where(
+                CatalogQualityIssue.code == "CATALOG_COUNT_MISMATCH"
+            )
+        )
+        assert issue.details["raw_count"] == 53
+        assert issue.details["duplicate_urls"] == [repeated.detail_url]
+
+
+def test_catalog_run_records_duplicates_even_when_count_matches(tmp_path: Path):
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        pages = _catalog_pages(tmp_path, total_count=52)
+        pages[2].discovery.tickets[0] = pages[1].discovery.tickets[-1]
+
+        persist_catalog_run(session, pages)
+
+        issue = session.scalar(
+            select(CatalogQualityIssue).where(
+                CatalogQualityIssue.code == "CATALOG_DUPLICATE_CARDS"
+            )
+        )
+        assert issue is not None
+        assert issue.severity == "info"
+
+
+def test_catalog_run_names_games_missing_since_previous_run(tmp_path: Path):
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        first = persist_catalog_run(session, _catalog_pages(tmp_path))
+        pages = _catalog_pages(
+            tmp_path, captured_at=datetime(2026, 8, 9, 12, tzinfo=UTC)
+        )
+        dropped = pages[-1].discovery.tickets.pop()
+
+        result = persist_catalog_run(session, pages)
+
+        assert first.missing_since_previous == []
+        assert result.missing_since_previous == [dropped.detail_url]
+        assert result.new_since_previous == []
+        issue = session.scalar(
+            select(CatalogQualityIssue).where(
+                CatalogQualityIssue.scrape_run_id == result.scrape_run_id,
+                CatalogQualityIssue.code == "CATALOG_COUNT_MISMATCH",
+            )
+        )
+        assert issue.details["missing_names"] == {
+            dropped.detail_url: dropped.display_name
+        }
 
 
 def _catalog_pages(
     tmp_path: Path,
     *,
     captured_at: datetime = datetime(2026, 8, 8, 12, tzinfo=UTC),
+    total_count: int = 53,
 ) -> list[CatalogPageCapture]:
     cards = [
         DiscoveredInstantTicket(
@@ -126,7 +232,7 @@ def _catalog_pages(
                         else []
                     ),
                     current_page_label=None,
-                    total_count=53,
+                    total_count=total_count,
                     warnings=[],
                 ),
             )
